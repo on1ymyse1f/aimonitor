@@ -16,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var syncing = false
     /// Quota thresholds already notified, per window id — reset when usage drops.
     private var notifiedThresholds: [String: Int] = [:]
+    private var lastClaudeQuotaFetch = Date.distantPast
+    private let claudeQuota = ClaudeQuotaProvider()
+
+    private var language: Language {
+        Language(rawValue: store.setting("language") ?? "system") ?? .system
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -46,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func kickSync(force: Bool) {
         guard !syncing else { return }
         let fingerprint = syncEngine.logsFingerprint()
+        maybeFetchClaudeQuota()
         guard force || fingerprint != lastFingerprint else { render(); return }
         syncing = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -56,6 +63,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.lastFingerprint = fingerprint
                 self.render()
                 self.maybeNotify()
+            }
+        }
+    }
+
+    /// Opt-in Claude online quota. Off by default; 15-minute minimum interval;
+    /// failures are silent (the log-based numbers remain the fallback).
+    private func maybeFetchClaudeQuota() {
+        guard store.setting("claude_quota_optin") == "true",
+              Date().timeIntervalSince(lastClaudeQuotaFetch) >= ClaudeQuotaProvider.minimumInterval
+        else { return }
+        lastClaudeQuotaFetch = Date()
+        let provider = claudeQuota
+        let store = self.store!
+        Task.detached {
+            if case .success(let windows) = await provider.fetch() {
+                for w in windows { try? store.insert(quota: w, provider: ClaudeQuotaProvider.providerName) }
             }
         }
     }
@@ -93,7 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Today
         menu.addItem(.separator())
         let costText = data.todayCostUSD.map { "~" + ReportFormatter.money(Decimal($0)) + " eq." } ?? "n/a"
-        menu.addItem(item("Today: \(StoreReport.compact(data.todayTokens)) tokens · \(StoreReport.duration(minutes: data.todayActiveMinutes)) · \(costText)"))
+        let lang = language
+        menu.addItem(item("\(L10n.text(.today, lang)): \(StoreReport.compact(data.todayTokens)) tokens · \(StoreReport.duration(minutes: data.todayActiveMinutes)) · \(costText)"))
 
         // Usage shares
         if !data.usageShares.isEmpty {
@@ -109,23 +133,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for q in data.quotas {
                 var line = String(format: "%@ %@ — %.0f%% · %@",
                                   q.provider, q.window.label, q.window.usedPercent,
-                                  StoreReport.resetDescription(q.window.resetsAt))
+                                  StoreReport.resetDescription(q.window.resetsAt, lang: lang))
                 if let p = q.projection {
-                    line += String(format: " · exhausted in %.1fh at current pace", p.exhaustedAt.timeIntervalSinceNow / 3600)
+                    line += String(format: lang.resolved == .zh ? " · 按当前速度 %.1f 小时后耗尽" : " · exhausted in %.1fh at current pace",
+                                   p.exhaustedAt.timeIntervalSinceNow / 3600)
                 }
                 menu.addItem(item(line))
             }
         }
 
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
+        let open = NSMenuItem(title: L10n.text(.openDashboard, lang), action: #selector(openDashboard), keyEquivalent: "d")
         open.target = self
         menu.addItem(open)
-        let resync = NSMenuItem(title: "Sync now", action: #selector(forceSync), keyEquivalent: "r")
+        let resync = NSMenuItem(title: L10n.text(.syncNow, lang), action: #selector(forceSync), keyEquivalent: "r")
         resync.target = self
         menu.addItem(resync)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: L10n.text(.quit, lang), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
 
         func header(_ s: String) -> NSMenuItem { let i = NSMenuItem(title: s, action: nil, keyEquivalent: ""); i.isEnabled = false; return i }

@@ -24,8 +24,14 @@ swift run aimonitor --json
 
 # persistent mode
 swift run aimonitor-menubar   # menu bar: syncs when logs change, reads SQLite
-swift run aimonitor-app       # SwiftUI dashboard: today, usage, flow, quotas, timeline, models, privacy
+swift run aimonitor-app       # SwiftUI dashboard: today, usage, flow, quotas, timeline, models, settings
 ```
+
+The dashboard supports **light/dark mode** (system / light / dark), **中文 /
+English**, and an **opt-in Claude live quota** fetch (Settings → Claude live
+quota) that reads the Claude Code OAuth token from your Keychain — read-only,
+never stored, never refreshed, at most one request every 15 minutes. Off by
+default; off means zero network requests.
 
 The menu bar app is the steady state: it fingerprints the log directories every
 15 s (stat calls only), syncs incrementally when they change, and renders from

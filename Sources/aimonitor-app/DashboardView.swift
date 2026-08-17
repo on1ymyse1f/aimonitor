@@ -6,6 +6,8 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject var model: MonitorModel
 
+    private var lang: Language { model.language }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -34,15 +36,15 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Theme.display(StoreReport.compact(d.todayTokens), size: 34)
-                Text("tokens today")
+                Text(L10n.text(.tokensToday, lang))
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.textMuted)
             }
 
             HStack(spacing: 18) {
-                heroStat("time", StoreReport.duration(minutes: d.todayActiveMinutes))
-                heroStat("cost", d.todayCostUSD.map { "$" + String(format: "%.2f", $0) } ?? "n/a")
-                heroStat("requests", "\(d.todayRequests)")
+                heroStat(L10n.text(.time, lang), StoreReport.duration(minutes: d.todayActiveMinutes))
+                heroStat(L10n.text(.cost, lang), d.todayCostUSD.map { "$" + String(format: "%.2f", $0) } ?? "n/a")
+                heroStat(L10n.text(.requests, lang), "\(d.todayRequests)")
             }
         }
     }
@@ -58,9 +60,9 @@ struct DashboardView: View {
 
     private func usageSection(_ d: StoreReport.Dashboard) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader("USAGE")
+            SectionHeader(L10n.text(.usage, lang))
             if d.usageShares.isEmpty {
-                EmptyNote(text: "No usage recorded today.")
+                EmptyNote(text: L10n.text(.noUsageToday, lang))
             } else {
                 ForEach(Array(d.usageShares.enumerated()), id: \.offset) { i, s in
                     HStack(spacing: 10) {
@@ -83,12 +85,12 @@ struct DashboardView: View {
     private func flowSection(_ d: StoreReport.Dashboard) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader("TOKEN FLOW")
+                SectionHeader(L10n.text(.tokenFlow, lang))
                 Spacer()
                 RangePicker(selection: $model.flowRange)
             }
             if d.flow.isEmpty {
-                EmptyNote(text: "No usage in this range.")
+                EmptyNote(text: L10n.text(.noUsageInRange, lang))
             } else {
                 FlowChart(flow: d.flow, hourly: d.flowIsHourly)
             }
@@ -99,12 +101,12 @@ struct DashboardView: View {
 
     private func quotaSection(_ d: StoreReport.Dashboard) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("QUOTA")
+            SectionHeader(L10n.text(.quota, lang))
             if d.quotas.isEmpty {
-                EmptyNote(text: "No quota data — providers either don't report it or weren't used yet.")
+                EmptyNote(text: L10n.text(.noQuotaData, lang))
             }
             ForEach(d.quotas, id: \.window.id) { q in
-                QuotaRow(q: q)
+                QuotaRow(q: q, lang: lang)
             }
         }
     }
@@ -112,6 +114,7 @@ struct DashboardView: View {
 
 struct QuotaRow: View {
     let q: StoreReport.QuotaView
+    let lang: Language
 
     var body: some View {
         let warn = q.window.usedPercent >= 90
@@ -122,25 +125,29 @@ struct QuotaRow: View {
                     .foregroundStyle(Theme.textSecondary)
                 Spacer()
                 Theme.mono(
-                    "\(Int(q.window.usedPercent.rounded()))% · \(StoreReport.resetDescription(q.window.resetsAt))",
+                    "\(Int(q.window.usedPercent.rounded()))% · \(StoreReport.resetDescription(q.window.resetsAt, lang: lang))",
                     size: 11,
                     color: warn ? Theme.accent : Theme.textMuted
                 )
             }
             TrackBar(fraction: q.window.usedPercent / 100, color: warn ? Theme.accent : Theme.bar.opacity(0.45))
             if let p = q.projection {
-                Text("At current pace, exhausted \(Self.pace(p.exhaustedAt))")
+                Text("\(L10n.text(.exhaustedPrefix, lang)) \(Self.pace(p.exhaustedAt, lang: lang))")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.accent)
             }
         }
     }
 
-    static func pace(_ date: Date) -> String {
+    static func pace(_ date: Date, lang: Language) -> String {
+        let zh = lang.resolved == .zh
         let t = date.timeIntervalSinceNow
-        if t < 3600 { return "in \(max(1, Int(t / 60)))m" }
-        if t < 86400 { return "in \(Int(t / 3600))h \(Int(t.truncatingRemainder(dividingBy: 3600) / 60))m" }
-        return "in \(Int(t / 86400))d"
+        if t < 3600 { return zh ? "\(max(1, Int(t / 60))) 分钟内" : "in \(max(1, Int(t / 60)))m" }
+        if t < 86400 {
+            let v = "\(Int(t / 3600))h \(Int(t.truncatingRemainder(dividingBy: 3600) / 60))m"
+            return zh ? "\(v)内" : "in \(v)"
+        }
+        return zh ? "\(Int(t / 86400)) 天内" : "in \(Int(t / 86400))d"
     }
 }
 
@@ -149,6 +156,15 @@ struct RangePicker: View {
     @Binding var selection: StoreReport.FlowRange
     @EnvironmentObject var model: MonitorModel
 
+    private func label(_ r: StoreReport.FlowRange) -> String {
+        switch r {
+        case .today: return L10n.text(.rangeToday, model.language)
+        case .week: return L10n.text(.range7D, model.language)
+        case .month: return L10n.text(.range30D, model.language)
+        case .all: return L10n.text(.rangeAll, model.language)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ForEach(StoreReport.FlowRange.allCases, id: \.self) { range in
@@ -156,7 +172,7 @@ struct RangePicker: View {
                     selection = range
                     model.refresh()
                 } label: {
-                    Text(range.rawValue)
+                    Text(label(range))
                         .font(.system(size: 10, weight: selection == range ? .semibold : .regular))
                         .foregroundStyle(selection == range ? Theme.text : Theme.textMuted)
                 }

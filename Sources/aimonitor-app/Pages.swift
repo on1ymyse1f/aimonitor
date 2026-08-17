@@ -21,14 +21,14 @@ struct TimelineView: View {
         VStack(spacing: 0) {
             HStack {
                 Menu {
-                    Button("All providers") { model.timelineProvider = nil; model.refresh() }
+                    Button(L10n.text(.allProviders, model.language)) { model.timelineProvider = nil; model.refresh() }
                     Divider()
                     ForEach(providers, id: \.self) { p in
                         Button(p) { model.timelineProvider = p; model.refresh() }
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(model.timelineProvider ?? "All providers").font(.system(size: 11))
+                        Text(model.timelineProvider ?? L10n.text(.allProviders, model.language)).font(.system(size: 11))
                         Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
                     }
                     .foregroundStyle(Theme.textSecondary)
@@ -40,7 +40,7 @@ struct TimelineView: View {
             Hairline()
 
             if model.timeline.isEmpty {
-                EmptyNote(text: "No events yet.").padding(20)
+                EmptyNote(text: L10n.text(.noEvents, model.language)).padding(20)
                 Spacer()
             } else {
                 ScrollView {
@@ -51,7 +51,7 @@ struct TimelineView: View {
                                     TimelineRow(e: e)
                                 }
                             } header: {
-                                Theme.sectionLabel(Self.dayLabel(day).uppercased())
+                                Theme.sectionLabel(Self.dayLabel(day, lang: model.language))
                                     .padding(.horizontal, 20).padding(.vertical, 6)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Theme.window)
@@ -64,13 +64,16 @@ struct TimelineView: View {
         }
     }
 
-    static func dayLabel(_ yyyyMMdd: String) -> String {
+    static func dayLabel(_ yyyyMMdd: String, lang: Language) -> String {
         let inFmt = DateFormatter(); inFmt.dateFormat = "yyyy-MM-dd"
-        let outFmt = DateFormatter(); outFmt.dateFormat = "EEEE, MMM d"
         guard let d = inFmt.date(from: yyyyMMdd) else { return yyyyMMdd }
-        if Calendar.current.isDateInToday(d) { return "Today" }
-        if Calendar.current.isDateInYesterday(d) { return "Yesterday" }
-        return outFmt.string(from: d)
+        let zh = lang.resolved == .zh
+        if Calendar.current.isDateInToday(d) { return zh ? "今天" : "TODAY" }
+        if Calendar.current.isDateInYesterday(d) { return zh ? "昨天" : "YESTERDAY" }
+        let outFmt = DateFormatter()
+        outFmt.locale = zh ? Locale(identifier: "zh_CN") : Locale(identifier: "en_US")
+        outFmt.dateFormat = zh ? "M月d日 EEEE" : "EEEE, MMM d"
+        return outFmt.string(from: d).uppercased()
     }
 }
 
@@ -124,7 +127,7 @@ struct ModelsView: View {
                             HStack {
                                 Text(m.provider).font(.system(size: 10)).foregroundStyle(Theme.textMuted)
                                 Spacer()
-                                Text("\(m.requests) requests · \(m.costUSD.map { "$" + String(format: "%.2f", $0) } ?? "unpriced")")
+                                Text("\(m.requests) \(L10n.text(.requestsSuffix, model.language)) · \(m.costUSD.map { "$" + String(format: "%.2f", $0) } ?? L10n.text(.unpriced, model.language))")
                                     .font(.system(size: 10)).foregroundStyle(Theme.textMuted)
                             }
                             TrackBar(fraction: Double(m.billable) / Double(maxBillable), color: Theme.bar.opacity(0.45))
@@ -139,47 +142,92 @@ struct ModelsView: View {
     }
 }
 
-// MARK: - Privacy page
+// MARK: - Settings page
 
-struct PrivacyView: View {
+struct SettingsView: View {
     @EnvironmentObject var model: MonitorModel
     @State private var retention = "90"
     @State private var notifications = false
     @State private var confirmDelete = false
 
+    private var lang: Language { model.language }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader("WHAT EACH COLLECTOR CAN ACCESS")
-                    collectorNote("Claude Code", "Reads ~/.claude/projects transcripts. Stores token counts, model, timestamps, project slug, request ids. Prompt and response text is never parsed, let alone stored.")
-                    collectorNote("Codex CLI", "Reads ~/.codex/sessions rollout logs and the quota data embedded in them. auth.json is never opened; no credential is ever refreshed.")
-                    Text("Everything stays in ~/Library/Application Support/AIMonitor. No telemetry, no account, no network.")
-                        .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
-                }
 
+                // Appearance
                 VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader("RETENTION")
+                    SectionHeader(L10n.text(.appearance, lang))
                     HStack(spacing: 14) {
-                        ForEach([("7 days", "7"), ("30 days", "30"), ("90 days", "90"), ("1 year", "365"), ("Forever", "0")], id: \.1) { label, value in
-                            Button {
-                                retention = value
-                                try? model.store.setSetting("retention_days", value)
-                                try? model.store.applyRetention()
-                            } label: {
-                                Text(label)
-                                    .font(.system(size: 11, weight: retention == value ? .semibold : .regular))
-                                    .foregroundStyle(retention == value ? Theme.accent : Theme.textMuted)
-                            }
-                            .buttonStyle(.plain)
+                        ForEach([("system", L10n.text(.appearanceSystem, lang)),
+                                 ("light", L10n.text(.appearanceLight, lang)),
+                                 ("dark", L10n.text(.appearanceDark, lang))], id: \.0) { value, label in
+                            choiceButton(label, selected: model.appearance == value) { model.setAppearance(value) }
                         }
                     }
                 }
 
+                // Language
                 VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader("NOTIFICATIONS")
+                    SectionHeader(L10n.text(.language, lang))
+                    HStack(spacing: 14) {
+                        choiceButton(L10n.text(.languageSystem, lang), selected: model.language == .system) { model.setLanguage(.system) }
+                        choiceButton("English", selected: model.language == .en) { model.setLanguage(.en) }
+                        choiceButton("中文", selected: model.language == .zh) { model.setLanguage(.zh) }
+                    }
+                }
+
+                Hairline()
+
+                // Claude live quota — opt-in
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(L10n.text(.claudeQuota, lang).uppercased())
+                    Toggle(isOn: Binding(
+                        get: { model.claudeQuotaEnabled },
+                        set: { model.setClaudeQuotaEnabled($0) }
+                    )) {
+                        Text(L10n.text(.claudeQuota, lang))
+                            .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                    }
+                    .toggleStyle(.switch).controlSize(.mini)
+                    Text(L10n.text(.claudeQuotaDetail, lang))
+                        .font(.system(size: 10)).foregroundStyle(Theme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Hairline()
+
+                // Collectors
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(L10n.text(.collectorsAccess, lang))
+                    collectorNote("Claude Code", L10n.text(.claudeCollectorNote, lang))
+                    collectorNote("Codex CLI", L10n.text(.codexCollectorNote, lang))
+                    Text(L10n.text(.storageNote, lang))
+                        .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Retention
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(L10n.text(.retention, lang))
+                    HStack(spacing: 14) {
+                        ForEach([("7", L10n.text(.retention7, lang)), ("30", L10n.text(.retention30, lang)),
+                                 ("90", L10n.text(.retention90, lang)), ("365", L10n.text(.retentionYear, lang)),
+                                 ("0", L10n.text(.retentionForever, lang))], id: \.0) { value, label in
+                            choiceButton(label, selected: retention == value) {
+                                retention = value
+                                try? model.store.setSetting("retention_days", value)
+                                try? model.store.applyRetention()
+                            }
+                        }
+                    }
+                }
+
+                // Notifications
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(L10n.text(.notifications, lang))
                     Toggle(isOn: $notifications) {
-                        Text("Quota alerts at 80% / 90% / 100%")
+                        Text(L10n.text(.notificationsDetail, lang))
                             .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
                     }
                     .toggleStyle(.switch).controlSize(.mini)
@@ -188,9 +236,10 @@ struct PrivacyView: View {
                     }
                 }
 
+                // Delete
                 VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("DELETE")
-                    Button(confirmDelete ? "Click again to confirm" : "Delete all analytics data") {
+                    Button(confirmDelete ? L10n.text(.deleteConfirm, lang) : L10n.text(.deleteAll, lang)) {
                         if confirmDelete {
                             try? model.store.deleteAllData()
                             confirmDelete = false
@@ -205,7 +254,7 @@ struct PrivacyView: View {
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(confirmDelete ? Theme.accent : Theme.accentFaint)
                     .clipShape(Capsule())
-                    Text("Removes every event, quota snapshot, and checkpoint. The next sync re-reads the logs from scratch.")
+                    Text(L10n.text(.deleteNote, lang))
                         .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -216,6 +265,15 @@ struct PrivacyView: View {
             retention = model.store.setting("retention_days") ?? "90"
             notifications = model.store.setting("notifications_enabled") == "true"
         }
+    }
+
+    private func choiceButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Theme.accent : Theme.textMuted)
+        }
+        .buttonStyle(.plain)
     }
 
     private func collectorNote(_ name: String, _ body: String) -> some View {

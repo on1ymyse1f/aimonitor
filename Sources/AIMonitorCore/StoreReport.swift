@@ -97,17 +97,20 @@ public enum StoreReport {
         return "\(minutes)m"
     }
 
-    /// "resets in 2h 14m" / "resets Fri"
-    public static func resetDescription(_ date: Date?) -> String {
-        guard let date else { return "reset unknown" }
+    /// "resets in 2h 14m" / "resets Fri" — localized.
+    public static func resetDescription(_ date: Date?, lang: Language = .en) -> String {
+        let zh = lang.resolved == .zh
+        guard let date else { return zh ? "重置时间未知" : "reset unknown" }
         let interval = date.timeIntervalSinceNow
-        if interval < 0 { return "reset due" }
+        if interval < 0 { return zh ? "已到重置时间" : "reset due" }
         if interval < 24 * 3600 {
             let h = Int(interval) / 3600, m = (Int(interval) % 3600) / 60
-            return h > 0 ? "resets in \(h)h \(m)m" : "resets in \(m)m"
+            let t = h > 0 ? "\(h)h \(m)m" : "\(m)m"
+            return zh ? "\(t)后重置" : "resets in \(t)"
         }
         let fmt = DateFormatter()
+        fmt.locale = zh ? Locale(identifier: "zh_CN") : Locale(identifier: "en_US")
         fmt.dateFormat = "EEE"
-        return "resets \(fmt.string(from: date))"
+        return zh ? "\(fmt.string(from: date))重置" : "resets \(fmt.string(from: date))"
     }
 }

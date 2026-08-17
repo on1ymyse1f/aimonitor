@@ -8,17 +8,23 @@ integrity of the tools being monitored.
 
 ## What this build does
 
-- **No network listener.** There is no local server, proxy, or IPC endpoint in
-  this build, so there is nothing to bind to 127.0.0.1, nothing to
-  authenticate, and nothing for a malicious webpage to forge events against.
-  When the proxy and browser-extension collectors are added, they must bind to
-  loopback only, authenticate extension messages with a per-install secret, and
-  validate every payload — those requirements are recorded here so they are
-  designed-in, not bolted on.
-- **No credential access.** Codex quota data is read from the logs Codex
-  already writes (`rate_limits` inside `token_count` events). `auth.json` is
-  never opened; no OAuth flow is triggered; active CLI sessions cannot be
-  invalidated by this tool.
+- **Network: one optional path, off by default.** The Claude live-quota fetch
+  (Settings → Claude live quota) reads the Claude Code OAuth access token from
+  the user's Keychain and issues a single read-only GET to the official usage
+  endpoint, at most once every 15 minutes. The token is never written to disk
+  or the database, and the refresh token is never touched — an active CLI
+  session cannot be invalidated. Disabled, the build performs zero network
+  requests. There is no listener, proxy, or IPC endpoint.
+- **When the proxy and browser-extension collectors are added**, they must bind
+  to loopback only, authenticate extension messages with a per-install secret,
+  and validate every payload — recorded here so they are designed-in, not
+  bolted on.
+- **No credential access by default.** Codex quota data is read from the logs
+  Codex already writes (`rate_limits` inside `token_count` events);
+  `auth.json` is never opened. The optional Claude live-quota feature is the
+  only credential touch in the build: a read-only Keychain read, one GET, the
+  token kept in memory for the duration of the call only. It is off by
+  default.
 - **No MITM, no root certificates, no traffic decryption.** Usage accounting
   comes from logs, not from intercepting TLS.
 - **SQL injection**: all queries use prepared statements with bound parameters.

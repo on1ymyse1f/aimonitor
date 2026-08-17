@@ -10,15 +10,39 @@ final class MonitorModel: ObservableObject {
     @Published var timeline: [EventStore.TimelineEvent] = []
     @Published var models: [EventStore.ModelTotals] = []
     @Published var timelineProvider: String? = nil
+    @Published var language: Language
+    @Published var appearance: String   // "system" | "light" | "dark"
+    @Published var claudeQuotaEnabled: Bool
 
     let store: EventStore
     let engine: SyncEngine
     private var fingerprint = -1
+    private var lastClaudeQuotaFetch = Date.distantPast
+    private let claudeQuota = ClaudeQuotaProvider()
 
     init() {
         let s = try! EventStore(path: EventStore.defaultPath())
         store = s
         engine = SyncEngine(store: s)
+        language = Language(rawValue: s.setting("language") ?? "system") ?? .system
+        appearance = s.setting("appearance") ?? "system"
+        claudeQuotaEnabled = s.setting("claude_quota_optin") == "true"
+    }
+
+    func setLanguage(_ l: Language) {
+        language = l
+        try? store.setSetting("language", l.rawValue)
+    }
+
+    func setAppearance(_ a: String) {
+        appearance = a
+        try? store.setSetting("appearance", a)
+    }
+
+    func setClaudeQuotaEnabled(_ on: Bool) {
+        claudeQuotaEnabled = on
+        try? store.setSetting("claude_quota_optin", on ? "true" : "false")
+        if on { refresh() }
     }
 
     func refresh() {
@@ -35,6 +59,24 @@ final class MonitorModel: ObservableObject {
                 if let dash { self.dashboard = dash }
                 if let tl { self.timeline = tl }
                 if let ms { self.models = ms }
+            }
+        }
+        maybeFetchClaudeQuota()
+    }
+
+    /// Opt-in, read-only, rate-limited. See ClaudeQuotaProvider.
+    private func maybeFetchClaudeQuota() {
+        guard claudeQuotaEnabled,
+              Date().timeIntervalSince(lastClaudeQuotaFetch) >= ClaudeQuotaProvider.minimumInterval
+        else { return }
+        lastClaudeQuotaFetch = Date()
+        let provider = claudeQuota
+        let store = self.store
+        Task.detached {
+            if case .success(let windows) = await provider.fetch() {
+                for w in windows {
+                    try? store.insert(quota: w, provider: ClaudeQuotaProvider.providerName)
+                }
             }
         }
     }
@@ -67,14 +109,22 @@ struct RootView: View {
     @State private var page: Page = .dashboard
 
     enum Page: CaseIterable {
-        case dashboard, timeline, models, privacy
-        var label: String {
+        case dashboard, timeline, models, settings
+        func label(_ lang: Language) -> String {
             switch self {
-            case .dashboard: return "Today"
-            case .timeline: return "Timeline"
-            case .models: return "Models"
-            case .privacy: return "Privacy"
+            case .dashboard: return L10n.text(.tabToday, lang)
+            case .timeline: return L10n.text(.tabTimeline, lang)
+            case .models: return L10n.text(.tabModels, lang)
+            case .settings: return L10n.text(.tabSettings, lang)
             }
+        }
+    }
+
+    private var colorScheme: ColorScheme? {
+        switch model.appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
         }
     }
 
@@ -82,7 +132,7 @@ struct RootView: View {
         VStack(spacing: 0) {
             // Header: serif wordmark + date, then quiet text tabs.
             HStack(alignment: .firstTextBaseline) {
-                Text("AI Monitor")
+                Text(L10n.text(.appTitle, model.language))
                     .font(.system(size: 17, weight: .regular, design: .serif))
                     .foregroundStyle(Theme.text)
                 Spacer()
@@ -93,10 +143,10 @@ struct RootView: View {
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
 
             HStack(spacing: 18) {
-                ForEach(Page.allCases, id: \.label) { p in
+                ForEach(Page.allCases, id: \.self) { p in
                     Button { page = p } label: {
                         VStack(spacing: 4) {
-                            Text(p.label)
+                            Text(p.label(model.language))
                                 .font(.system(size: 12, weight: page == p ? .medium : .regular))
                                 .foregroundStyle(page == p ? Theme.text : Theme.textMuted)
                             Capsule()
@@ -116,9 +166,10 @@ struct RootView: View {
             case .dashboard: DashboardView()
             case .timeline: TimelineView()
             case .models: ModelsView()
-            case .privacy: PrivacyView()
+            case .settings: SettingsView()
             }
         }
         .background(Theme.window)
+        .preferredColorScheme(colorScheme)
     }
 }
