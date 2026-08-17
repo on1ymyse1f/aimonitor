@@ -149,6 +149,7 @@ struct SettingsView: View {
     @State private var retention = "90"
     @State private var notifications = false
     @State private var confirmDelete = false
+    @State private var exportedPath: String?
 
     private var lang: Language { model.language }
 
@@ -196,6 +197,39 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // Kimi live quota — opt-in
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(L10n.text(.kimiQuota, lang).uppercased())
+                    Toggle(isOn: Binding(
+                        get: { model.kimiQuotaEnabled },
+                        set: { model.setKimiQuotaEnabled($0) }
+                    )) {
+                        Text(L10n.text(.kimiQuota, lang))
+                            .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                    }
+                    .toggleStyle(.switch).controlSize(.mini)
+                    Text(L10n.text(.kimiQuotaDetail, lang))
+                        .font(.system(size: 10)).foregroundStyle(Theme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Profile card export
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(L10n.text(.exportCard, lang).uppercased())
+                    HStack(spacing: 14) {
+                        ForEach((try? model.store.providersPresent()) ?? [], id: \.self) { p in
+                            choiceButton(p, selected: false) {
+                                exportedPath = model.exportCard(provider: p)?.path
+                            }
+                        }
+                    }
+                    if let exportedPath {
+                        Text("\(L10n.text(.exportCardDone, lang))\(exportedPath)")
+                            .font(.system(size: 10)).foregroundStyle(Theme.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
                 Hairline()
 
                 // Collectors
@@ -203,6 +237,7 @@ struct SettingsView: View {
                     SectionHeader(L10n.text(.collectorsAccess, lang))
                     collectorNote("Claude Code", L10n.text(.claudeCollectorNote, lang))
                     collectorNote("Codex CLI", L10n.text(.codexCollectorNote, lang))
+                    collectorNote("Kimi Code", L10n.text(.kimiCollectorNote, lang))
                     Text(L10n.text(.storageNote, lang))
                         .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
                 }

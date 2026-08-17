@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notifiedThresholds: [String: Int] = [:]
     private var lastClaudeQuotaFetch = Date.distantPast
     private let claudeQuota = ClaudeQuotaProvider()
+    private var lastKimiQuotaFetch = Date.distantPast
+    private let kimiQuota = KimiQuotaProvider()
 
     private var language: Language {
         Language(rawValue: store.setting("language") ?? "system") ?? .system
@@ -53,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !syncing else { return }
         let fingerprint = syncEngine.logsFingerprint()
         maybeFetchClaudeQuota()
+        maybeFetchKimiQuota()
         guard force || fingerprint != lastFingerprint else { render(); return }
         syncing = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -79,6 +82,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task.detached {
             if case .success(let windows) = await provider.fetch() {
                 for w in windows { try? store.insert(quota: w, provider: ClaudeQuotaProvider.providerName) }
+            }
+        }
+    }
+
+    /// Opt-in Kimi online quota. Same rules as Claude: off by default,
+    /// 15-minute minimum interval, silent failure with log-based fallback.
+    private func maybeFetchKimiQuota() {
+        guard store.setting("kimi_quota_optin") == "true",
+              Date().timeIntervalSince(lastKimiQuotaFetch) >= KimiQuotaProvider.minimumInterval
+        else { return }
+        lastKimiQuotaFetch = Date()
+        let provider = kimiQuota
+        let store = self.store!
+        Task.detached {
+            if case .success(let windows) = await provider.fetch() {
+                for w in windows { try? store.insert(quota: w, provider: KimiQuotaProvider.providerName) }
             }
         }
     }

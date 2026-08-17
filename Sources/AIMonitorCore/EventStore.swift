@@ -503,6 +503,38 @@ public final class EventStore: @unchecked Sendable {
         return out
     }
 
+    /// Per-day billable for one provider, ascending, only days with usage.
+    /// Feeds the profile card's heatmap and streak math. Local-time days.
+    public func dailyBillable(provider: String) throws -> [(day: Date, billable: Int)] {
+        let stmt = try db.prepare("""
+            SELECT date(ts, 'unixepoch', 'localtime') d, SUM(billable) FROM events
+            WHERE ts IS NOT NULL AND provider=?1 GROUP BY d ORDER BY d
+            """)
+        stmt.bind(provider, 1)
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        var out: [(Date, Int)] = []
+        while try stmt.step() {
+            if let s = stmt.str(0), let d = fmt.parse(s) {
+                out.append((d, stmt.int(1)))
+            }
+        }
+        return out
+    }
+
+    /// Distinct providers present in the store, most usage first — the set of
+    /// cards `aimonitor card` can offer.
+    public func providersPresent() throws -> [String] {
+        let stmt = try db.prepare("""
+            SELECT provider, SUM(billable) b FROM events GROUP BY provider ORDER BY b DESC
+            """)
+        var out: [String] = []
+        while try stmt.step() {
+            if let p = stmt.str(0) { out.append(p) }
+        }
+        return out
+    }
+
     /// Whole-history token breakdown per provider — the number the CLI report
     /// cross-checks against. SUM of billable components, not just billable.
     public func tokenBreakdown(provider: String) throws -> TokenBreakdown? {

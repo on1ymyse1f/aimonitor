@@ -29,15 +29,18 @@ public struct CursorCollector: Sendable {
 public struct Aggregator: Sendable {
     public let codex: CodexCollector
     public let claudeCode: ClaudeCodeCollector
+    public let kimi: KimiCollector
     public let cursor: CursorCollector
 
     public init(
         codex: CodexCollector = CodexCollector(),
         claudeCode: ClaudeCodeCollector = ClaudeCodeCollector(),
+        kimi: KimiCollector = KimiCollector(),
         cursor: CursorCollector = CursorCollector()
     ) {
         self.codex = codex
         self.claudeCode = claudeCode
+        self.kimi = kimi
         self.cursor = cursor
     }
 
@@ -48,6 +51,7 @@ public struct Aggregator: Sendable {
             providers: [
                 claudeCode.collect(since: since),
                 codex.collect(since: since),
+                kimi.collect(since: since),
                 cursor.collect(since: since),
             ]
         )

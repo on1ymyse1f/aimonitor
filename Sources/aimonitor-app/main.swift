@@ -13,12 +13,15 @@ final class MonitorModel: ObservableObject {
     @Published var language: Language
     @Published var appearance: String   // "system" | "light" | "dark"
     @Published var claudeQuotaEnabled: Bool
+    @Published var kimiQuotaEnabled: Bool
 
     let store: EventStore
     let engine: SyncEngine
     private var fingerprint = -1
     private var lastClaudeQuotaFetch = Date.distantPast
+    private var lastKimiQuotaFetch = Date.distantPast
     private let claudeQuota = ClaudeQuotaProvider()
+    private let kimiQuota = KimiQuotaProvider()
 
     init() {
         let s = try! EventStore(path: EventStore.defaultPath())
@@ -27,6 +30,7 @@ final class MonitorModel: ObservableObject {
         language = Language(rawValue: s.setting("language") ?? "system") ?? .system
         appearance = s.setting("appearance") ?? "system"
         claudeQuotaEnabled = s.setting("claude_quota_optin") == "true"
+        kimiQuotaEnabled = s.setting("kimi_quota_optin") == "true"
     }
 
     func setLanguage(_ l: Language) {
@@ -43,6 +47,33 @@ final class MonitorModel: ObservableObject {
         claudeQuotaEnabled = on
         try? store.setSetting("claude_quota_optin", on ? "true" : "false")
         if on { refresh() }
+    }
+
+    func setKimiQuotaEnabled(_ on: Bool) {
+        kimiQuotaEnabled = on
+        try? store.setSetting("kimi_quota_optin", on ? "true" : "false")
+        if on { refresh() }
+    }
+
+    /// Writes a shareable profile card (heatmap + streaks) for the provider to
+    /// a user-chosen location. Offline; reads only the store.
+    func exportCard(provider: String) -> URL? {
+        guard let days = try? store.dailyBillable(provider: provider) else { return nil }
+        let stats = CardReport.stats(from: days)
+        let name = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+        let html = CardReport.html(
+            provider: provider, stats: stats,
+            name: name, handle: NSUserName(), lang: language
+        )
+        let slug = provider.replacingOccurrences(of: " ", with: "-").lowercased()
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/aimonitor-card-\(slug).html")
+        do {
+            try html.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     func refresh() {
@@ -62,6 +93,7 @@ final class MonitorModel: ObservableObject {
             }
         }
         maybeFetchClaudeQuota()
+        maybeFetchKimiQuota()
     }
 
     /// Opt-in, read-only, rate-limited. See ClaudeQuotaProvider.
@@ -76,6 +108,23 @@ final class MonitorModel: ObservableObject {
             if case .success(let windows) = await provider.fetch() {
                 for w in windows {
                     try? store.insert(quota: w, provider: ClaudeQuotaProvider.providerName)
+                }
+            }
+        }
+    }
+
+    /// Opt-in, read-only, rate-limited. See KimiQuotaProvider.
+    private func maybeFetchKimiQuota() {
+        guard kimiQuotaEnabled,
+              Date().timeIntervalSince(lastKimiQuotaFetch) >= KimiQuotaProvider.minimumInterval
+        else { return }
+        lastKimiQuotaFetch = Date()
+        let provider = kimiQuota
+        let store = self.store
+        Task.detached {
+            if case .success(let windows) = await provider.fetch() {
+                for w in windows {
+                    try? store.insert(quota: w, provider: KimiQuotaProvider.providerName)
                 }
             }
         }

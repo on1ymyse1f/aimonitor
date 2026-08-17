@@ -89,14 +89,14 @@ final class SyncEngineTests: XCTestCase {
         let lines2 = lines1 + [claudeRecord(requestID: "r2", ts: "2026-08-10T10:01:00.000Z", output: 200)]
 
         let incStore = try EventStore.inMemory()
-        let incEngine = SyncEngine(store: incStore, claudeRoot: incrementalDir.url, codexRoot: TempDir().url)
+        let incEngine = SyncEngine(store: incStore, claudeRoot: incrementalDir.url, codexRoot: TempDir().url, kimiRoot: TempDir().url)
         _ = incrementalDir.write(lines1, to: "proj/session.jsonl")
         _ = incEngine.sync()
         _ = incrementalDir.write(lines2, to: "proj/session.jsonl")   // append (rewrite with more lines)
         _ = incEngine.sync()
 
         let fullStore = try EventStore.inMemory()
-        let fullEngine = SyncEngine(store: fullStore, claudeRoot: fullDir.url, codexRoot: TempDir().url)
+        let fullEngine = SyncEngine(store: fullStore, claudeRoot: fullDir.url, codexRoot: TempDir().url, kimiRoot: TempDir().url)
         _ = fullDir.write(lines2, to: "proj/session.jsonl")
         _ = fullEngine.sync()
 
@@ -114,14 +114,14 @@ final class SyncEngineTests: XCTestCase {
         let lines2 = lines1 + [codexTokenCount(ts: "2026-08-10T10:01:00.000Z", input: 300, cached: 150, output: 30)]
 
         let incStore = try EventStore.inMemory()
-        let incEngine = SyncEngine(store: incStore, claudeRoot: TempDir().url, codexRoot: incrementalDir.url)
+        let incEngine = SyncEngine(store: incStore, claudeRoot: TempDir().url, codexRoot: incrementalDir.url, kimiRoot: TempDir().url)
         _ = incrementalDir.write(lines1, to: "2026/08/10/rollout-a.jsonl")
         _ = incEngine.sync()
         _ = incrementalDir.write(lines2, to: "2026/08/10/rollout-a.jsonl")
         _ = incEngine.sync()
 
         let fullStore = try EventStore.inMemory()
-        let fullEngine = SyncEngine(store: fullStore, claudeRoot: TempDir().url, codexRoot: fullDir.url)
+        let fullEngine = SyncEngine(store: fullStore, claudeRoot: TempDir().url, codexRoot: fullDir.url, kimiRoot: TempDir().url)
         _ = fullDir.write(lines2, to: "2026/08/10/rollout-a.jsonl")
         _ = fullEngine.sync()
 
@@ -136,7 +136,7 @@ final class SyncEngineTests: XCTestCase {
         let dir = TempDir()
         _ = dir.write([claudeRecord(requestID: "r1", ts: "2026-08-10T10:00:00.000Z", output: 100)], to: "proj/session.jsonl")
         let store = try EventStore.inMemory()
-        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url)
+        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url, kimiRoot: TempDir().url)
         var s = engine.sync()
         XCTAssertEqual(s.filesScanned, 1)
         s = engine.sync()
@@ -151,7 +151,7 @@ final class SyncEngineTests: XCTestCase {
                      claudeRecord(requestID: "r2", ts: "2026-08-10T10:01:00.000Z", output: 200)]
         _ = dir.write(lines, to: "proj/session.jsonl")
         let store = try EventStore.inMemory()
-        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url)
+        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url, kimiRoot: TempDir().url)
         _ = engine.sync()
         _ = dir.write([lines[0]], to: "proj/session.jsonl")   // truncated: smaller than checkpoint
         let s = engine.sync()
@@ -167,7 +167,7 @@ final class SyncEngineTests: XCTestCase {
         let dir = TempDir()
         _ = dir.write([claudeRecord(requestID: "ancient", ts: "2020-01-01T00:00:00.000Z", output: 100)], to: "proj/session.jsonl")
         let store = try EventStore.inMemory()
-        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url)
+        let engine = SyncEngine(store: store, claudeRoot: dir.url, codexRoot: TempDir().url, kimiRoot: TempDir().url)
         _ = engine.sync()
         XCTAssertEqual(try store.eventCount(provider: ClaudeCodeCollector.providerName), 1)
     }

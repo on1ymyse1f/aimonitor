@@ -68,8 +68,9 @@ number is trusted.
 
 | | Tokens | Quota | API-equivalent cost | Amount billed |
 |---|---|---|---|---|
-| Claude Code | est. (never exact — see below) | n/a | est. | n/a |
+| Claude Code | est. (never exact — see below) | exact (opt-in, online) | est. | n/a |
 | Codex CLI | exact / est. | exact (from logs) | n/a | n/a |
+| Kimi Code | exact | exact (opt-in, online) | n/a | n/a |
 | Cursor | n/a | n/a | n/a | n/a |
 
 **Claude Code tokens are never labelled exact.** `input_tokens` in these
@@ -81,6 +82,14 @@ local logs, so the figure stays `estimated` permanently.
 **Codex needs no credentials.** `rate_limits` rides inside the `token_count`
 events in `~/.codex/sessions/**/rollout-*.jsonl`. `auth.json` and OAuth refresh
 are never touched.
+
+**Kimi Code reads per-turn records.** `usage.record` lines in
+`~/.kimi-code/sessions/**/wire.jsonl` are turn-scoped (not cumulative), so they
+sum directly; `time` is epoch milliseconds. Project attribution comes from
+`session_index.jsonl` (workDir), falling back to the workspace slug.
+Conversation lines in wire logs are skipped before JSON parsing. Live quota is
+opt-in: one read-only GET to the provider's usage endpoint using the CLI's own
+access token, at most once every 15 minutes; the refresh token is never read.
 
 **Codex cost is absent.** No verified OpenAI rate card ships here; a guessed
 rate would still add up, so there is no Codex cost figure.
@@ -112,7 +121,7 @@ always reports `n/a`.
 
 ## Verification
 
-- 48 tests, one per trap plus store/dedup/incremental/burn-rate suites.
+- 70 tests, one per trap plus store/dedup/incremental/burn-rate/card suites.
 - Both collectors were cross-checked against independent Python
   reimplementations over the same real logs — digit-for-digit agreement.
 - The incremental store path was cross-checked against the full-scan report on
@@ -144,6 +153,10 @@ Sources/AIMonitorCore/
   JSONL.swift               streaming reader: needles, offsets, autoreleasepool
   CodexCollector.swift      cumulative counters, quota from rate_limits
   ClaudeCodeCollector.swift streaming-snapshot fold, cache TTL split, cost
+  KimiCollector.swift       per-turn usage records, session_index attribution
+  ClaudeQuotaProvider.swift opt-in online quota via Keychain OAuth (read-only)
+  KimiQuotaProvider.swift   opt-in online quota via the CLI's own token
+  CardReport.swift          shareable profile card (heatmap, streaks) as HTML
   Aggregator.swift          provider composition; Cursor unavailable-with-reason
   Report.swift              text and JSON rendering
   AIEvent.swift             the normalized event record
@@ -152,12 +165,12 @@ Sources/AIMonitorCore/
   SyncEngine.swift          incremental, restart-safe log → store sync
   BurnRate.swift            quota exhaustion projection (or silence)
   StoreReport.swift         read models for menu bar + dashboard
-Sources/aimonitor/          CLI (full scan; --sync for the store path)
+Sources/aimonitor/          CLI (full scan; --sync store path; card export)
 Sources/aimonitor-probe/    format probe (key paths only, no values)
 Sources/aimonitor-menubar/  status-bar app, store-backed
 Sources/aimonitor-app/      SwiftUI dashboard: today / usage / flow / quota /
                             timeline / models / privacy
-Tests/                      48 tests incl. fixtures per trap
+Tests/                      70 tests incl. fixtures per trap
 ```
 
 ## Not built (deliberately)

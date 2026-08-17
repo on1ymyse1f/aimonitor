@@ -25,10 +25,11 @@ public enum L10n {
         // Timeline / models
         case allProviders, noEvents, requestsSuffix, unpriced
         // Settings
-        case collectorsAccess, claudeCollectorNote, codexCollectorNote, storageNote
+        case collectorsAccess, claudeCollectorNote, codexCollectorNote, kimiCollectorNote, storageNote
         case retention, retention7, retention30, retention90, retentionYear, retentionForever
         case notifications, notificationsDetail
-        case claudeQuota, claudeQuotaDetail
+        case claudeQuota, claudeQuotaDetail, kimiQuota, kimiQuotaDetail
+        case exportCard, exportCardDone
         case appearance, appearanceSystem, appearanceLight, appearanceDark
         case language, languageSystem
         case deleteAll, deleteConfirm, deleteNote
@@ -73,9 +74,18 @@ public enum L10n {
         case .codexCollectorNote: return zh
             ? "读取 ~/.codex/sessions 下的 rollout 日志及其中内嵌的额度数据。auth.json 从不打开，凭证从不触碰。"
             : "Reads ~/.codex/sessions rollout logs and the quota data embedded in them. auth.json is never opened; no credential is ever refreshed."
+        case .kimiCollectorNote: return zh
+            ? "读取 ~/.kimi-code/sessions 下的 wire 日志中的 usage 记录。会话内容行在解析前就被跳过。credentials 目录从不读取。"
+            : "Reads usage records from wire logs under ~/.kimi-code/sessions. Conversation lines are skipped before parsing. The credentials directory is never read."
+        case .kimiQuota: return zh ? "Kimi 在线额度" : "Kimi live quota"
+        case .kimiQuotaDetail: return zh
+            ? "只读 Kimi Code 本地凭证文件中的访问令牌，向官方额度端点发一个 GET。每 15 分钟最多一次；令牌不落盘、不刷新。关闭则不产生任何网络请求。"
+            : "Reads the access token from Kimi Code's local credential file and issues one GET to the official usage endpoint. At most once every 15 minutes; the token is never stored or refreshed. Off means zero network requests."
+        case .exportCard: return zh ? "导出使用名片" : "Export profile card"
+        case .exportCardDone: return zh ? "名片已导出：" : "Card exported:"
         case .storageNote: return zh
-            ? "一切数据只存在 ~/Library/Application Support/AIMonitor。无遥测、无账号、除可选的 Claude 额度查询外无任何网络请求。"
-            : "Everything stays in ~/Library/Application Support/AIMonitor. No telemetry, no account, no network except the optional Claude quota query."
+            ? "一切数据只存在 ~/Library/Application Support/AIMonitor。无遥测、无账号、除可选的在线额度查询（默认关闭）外无任何网络请求。"
+            : "Everything stays in ~/Library/Application Support/AIMonitor. No telemetry, no account, no network except the optional live quota queries (off by default)."
         case .retention: return zh ? "保留时长" : "RETENTION"
         case .retention7: return zh ? "7 天" : "7 days"
         case .retention30: return zh ? "30 天" : "30 days"

@@ -16,12 +16,14 @@ public struct SyncEngine: Sendable {
     public let store: EventStore
     public let claudeRoot: URL
     public let codexRoot: URL
+    public let kimiRoot: URL
 
-    public init(store: EventStore, claudeRoot: URL? = nil, codexRoot: URL? = nil) {
+    public init(store: EventStore, claudeRoot: URL? = nil, codexRoot: URL? = nil, kimiRoot: URL? = nil) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         self.store = store
         self.claudeRoot = claudeRoot ?? home.appendingPathComponent(".claude/projects", isDirectory: true)
         self.codexRoot = codexRoot ?? home.appendingPathComponent(".codex/sessions", isDirectory: true)
+        self.kimiRoot = kimiRoot ?? home.appendingPathComponent(".kimi-code/sessions", isDirectory: true)
     }
 
     public struct SyncSummary: Equatable {
@@ -30,6 +32,7 @@ public struct SyncEngine: Sendable {
         public var filesFailed = 0
         public var claudeEvents = 0
         public var codexEvents = 0
+        public var kimiEvents = 0
         public var quotaSnapshots = 0
     }
 
@@ -37,7 +40,7 @@ public struct SyncEngine: Sendable {
     /// run on a timer; a sync only happens when this changes.
     public func logsFingerprint() -> Int {
         var total = 0
-        for root in [claudeRoot, codexRoot] {
+        for root in [claudeRoot, codexRoot, kimiRoot] {
             guard let e = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
             ) else { continue }
@@ -52,6 +55,7 @@ public struct SyncEngine: Sendable {
         var summary = SyncSummary()
         syncClaude(&summary)
         syncCodex(&summary)
+        syncKimi(&summary)
         // Retention is deliberately NOT applied here: the sync engine's job is
         // to make the store faithful to the logs. Data lifecycle is a separate
         // decision, applied by the app layer via store.applyRetention().
@@ -200,6 +204,56 @@ public struct SyncEngine: Sendable {
         summary.filesScanned += 1
         summary.codexEvents += pending.count
         summary.quotaSnapshots += quotas.count
+    }
+
+    // MARK: - Kimi Code
+
+    private func syncKimi(_ summary: inout SyncSummary) {
+        // One index lookup for the whole run — it is a small file.
+        let index = KimiCollector.sessionIndex(under: kimiRoot)
+        for file in KimiCollector.wireFiles(under: kimiRoot) {
+            do { try syncKimiFile(file, index: index, &summary) } catch { summary.filesFailed += 1 }
+        }
+    }
+
+    /// Kimi records are per-turn (not cumulative), so no provider state is
+    /// needed in the checkpoint: offset resume plus positional-id dedup suffice.
+    private func syncKimiFile(_ file: URL, index: [String: String], _ summary: inout SyncSummary) throws {
+        let size = fileSize(file)
+        let path = file.path
+        let cp = try store.checkpoint(for: path)
+        if let cp, cp.size == size { summary.filesSkippedUnchanged += 1; return }
+
+        let offset = (cp != nil && cp!.offset <= size) ? cp!.offset : 0
+        let sessionId = KimiCollector.sessionId(for: file)
+        let project = KimiCollector.projectName(for: file, under: kimiRoot, index: index)
+        var pending: [AIEvent] = []
+
+        let end = try JSONL.forEachLine(at: file, from: UInt64(offset), needles: ["\"usage.record\""]) { object, lineStart, _ in
+            guard let tokens = KimiCollector.tokens(from: object),
+                  tokens.billableEquivalent > 0 else { return }
+
+            pending.append(AIEvent(
+                // Positional id. Kimi wire logs are all named wire.jsonl, so
+                // the session component (unique per session) disambiguates.
+                id: "kimi:\(sessionId ?? file.deletingLastPathComponent().lastPathComponent)@\(lineStart)",
+                timestamp: KimiCollector.timestamp(of: object),
+                provider: KimiCollector.providerName,
+                application: "Kimi Code",
+                model: object.str("model"),
+                sessionId: sessionId,
+                project: project,
+                tokens: tokens,
+                costUSD: nil,   // no verified Kimi rate card — never guessed
+                confidence: .exact
+            ))
+        }
+
+        try commitEvents(pending, keepLargest: false) { [store] in
+            try store.setCheckpoint(.init(size: size, offset: Int(end), state: nil), for: path)
+        }
+        summary.filesScanned += 1
+        summary.kimiEvents += pending.count
     }
 
     // MARK: - Helpers
