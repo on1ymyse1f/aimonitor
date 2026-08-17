@@ -8,88 +8,78 @@ struct SectionHeader: View {
     var body: some View { Theme.sectionLabel(text) }
 }
 
-/// A 6pt rounded bar on a faint track — the mockup's one and only chart idiom.
+struct Hairline: View {
+    var body: some View {
+        Rectangle().fill(Theme.hairline).frame(height: 0.5)
+    }
+}
+
+/// 4pt rounded bar on a warm track. One accent hue maximum per screen.
 struct TrackBar: View {
     let fraction: Double
-    let color: Color
+    var color: Color = Theme.bar
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Theme.trackFill)
+                Capsule().fill(Theme.track)
                 Capsule().fill(color)
                     .frame(width: geo.size.width * min(1, max(0, fraction)))
             }
         }
-        .frame(height: 6)
+        .frame(height: 4)
     }
 }
 
-struct Hairline: View {
-    var body: some View {
-        Rectangle().fill(Theme.border).frame(height: 0.5)
-    }
-}
+// MARK: - Active now
 
-// MARK: - Active now card
-
-struct ActiveNowCard: View {
+/// A quiet single line: live dot, "Codex · GPT-5.6", age at right. No card.
+struct ActiveNowRow: View {
     let provider: String
     let model: String?
     let lastEventAt: Date
 
-    /// Tick so the "38s" ages while the window is open.
     @State private var now = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Circle().fill(Theme.activeDot).frame(width: 6, height: 6)
-                Theme.sectionLabel("ACTIVE NOW").foregroundStyle(Theme.activeLabel)
-            }
-            HStack(alignment: .firstTextBaseline) {
-                Text(provider + (model.map { " · \($0)" } ?? ""))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.activeText)
-                Spacer()
-                Text(age)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Theme.activeLabel)
-            }
+        HStack(spacing: 8) {
+            Circle().fill(Theme.live).frame(width: 6, height: 6)
+            Text(provider + (model.map { " · \($0)" } ?? ""))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.text)
+            Spacer()
+            Theme.mono(age, size: 11, color: Theme.textMuted)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(Theme.activeBg)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
         .onReceive(timer) { now = $0 }
     }
 
     private var age: String {
         let s = Int(now.timeIntervalSince(lastEventAt))
         if s < 60 { return "\(s)s" }
-        if s < 3600 { return "\(s / 60)m \(s % 60)s" }
+        if s < 3600 { return "\(s / 60)m" }
         return "\(s / 3600)h \(s % 3600 / 60)m"
     }
 }
 
-// MARK: - Token-flow bar chart
+// MARK: - Token flow
 
+/// Bars only, no axis chrome. Today's hours; the most recent bar gets the accent.
 struct FlowChart: View {
     let flow: [(bucket: Date, billable: Int)]
     let hourly: Bool
 
     var body: some View {
         let maxV = flow.map(\.billable).max() ?? 1
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             GeometryReader { geo in
                 let n = max(flow.count, 1)
                 let slot = geo.size.width / CGFloat(n)
                 HStack(alignment: .bottom, spacing: 0) {
                     ForEach(Array(flow.enumerated()), id: \.offset) { i, b in
-                        let recent = hourly && i >= n - 4   // the mockup darkens the last hours
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(recent ? Theme.purple : Theme.purpleSoft)
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(i == n - 1 ? Theme.accent : Theme.accentSoft)
                             .frame(
-                                width: max(2, slot * 0.72),
+                                width: max(2, slot * 0.62),
                                 height: max(2, geo.size.height * CGFloat(b.billable) / CGFloat(maxV))
                             )
                             .frame(width: slot, alignment: .center)
@@ -97,30 +87,24 @@ struct FlowChart: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .bottom)
             }
-            .frame(height: 54)
+            .frame(height: 48)
 
-            if !flow.isEmpty {
-                HStack {
-                    Text(label(flow.first!.bucket))
-                    Spacer()
-                    if flow.count > 2 { Text(label(flow[flow.count / 2].bucket)) }
-                    Spacer()
-                    Text(label(flow.last!.bucket))
-                }
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(Theme.textMuted)
+            HStack {
+                Text(label(flow.first!.bucket))
+                Spacer()
+                Text(label(flow.last!.bucket))
             }
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundStyle(Theme.textMuted)
         }
     }
 
     private func label(_ d: Date) -> String {
         let f = DateFormatter()
-        f.dateFormat = hourly ? "HH" : "MMM d"
+        f.dateFormat = hourly ? "HH:mm" : "MMM d"
         return f.string(from: d)
     }
 }
-
-// MARK: - Empty state
 
 struct EmptyNote: View {
     let text: String
@@ -129,6 +113,6 @@ struct EmptyNote: View {
             .font(.system(size: 11))
             .foregroundStyle(Theme.textMuted)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
     }
 }

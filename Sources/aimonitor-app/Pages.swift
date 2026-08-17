@@ -10,7 +10,6 @@ struct TimelineView: View {
         Array(Set(model.timeline.map(\.provider))).sorted()
     }
 
-    /// Group by calendar day, newest first.
     private var days: [(String, [EventStore.TimelineEvent])] {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
@@ -29,25 +28,19 @@ struct TimelineView: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(model.timelineProvider ?? "All providers")
-                            .font(.system(size: 11))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8))
+                        Text(model.timelineProvider ?? "All providers").font(.system(size: 11))
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
                     }
                     .foregroundStyle(Theme.textSecondary)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Theme.card)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Theme.border, lineWidth: 0.5))
                 }
                 .menuStyle(.borderlessButton)
                 Spacer()
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, 20).padding(.vertical, 8)
             Hairline()
 
             if model.timeline.isEmpty {
-                EmptyNote(text: "No events yet.").padding(16)
+                EmptyNote(text: "No events yet.").padding(20)
                 Spacer()
             } else {
                 ScrollView {
@@ -58,10 +51,8 @@ struct TimelineView: View {
                                     TimelineRow(e: e)
                                 }
                             } header: {
-                                Text(Self.dayLabel(day))
-                                    .font(.system(size: 10, weight: .medium)).tracking(1)
-                                    .foregroundStyle(Theme.textMuted)
-                                    .padding(.horizontal, 16).padding(.vertical, 6)
+                                Theme.sectionLabel(Self.dayLabel(day).uppercased())
+                                    .padding(.horizontal, 20).padding(.vertical, 6)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Theme.window)
                             }
@@ -88,15 +79,16 @@ struct TimelineRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(e.timestamp, format: .dateTime.hour().minute())
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Theme.textMuted)
-                .frame(width: 48, alignment: .leading)
+            Theme.mono({
+                let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: e.timestamp)
+            }(), size: 11, color: Theme.textMuted)
+            .frame(width: 44, alignment: .leading)
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(e.provider).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
                     if let m = e.model {
-                        Text(m).font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                        Text(m).font(.system(size: 11)).foregroundStyle(Theme.textMuted)
                     }
                 }
                 if let p = e.project {
@@ -104,11 +96,9 @@ struct TimelineRow: View {
                 }
             }
             Spacer()
-            Text(StoreReport.compact(e.billable))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Theme.textSecondary)
+            Theme.mono(StoreReport.compact(e.billable), size: 11)
         }
-        .padding(.horizontal, 16).padding(.vertical, 7)
+        .padding(.horizontal, 20).padding(.vertical, 7)
         .overlay(alignment: .bottom) { Hairline().padding(.leading, 76) }
     }
 }
@@ -123,13 +113,13 @@ struct ModelsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Array(model.models.enumerated()), id: \.offset) { i, m in
+                ForEach(model.models, id: \.model) { m in
                     VStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 5) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(m.model).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
                                 Spacer()
-                                Theme.number(StoreReport.compact(m.billable), size: 12)
+                                Theme.mono(StoreReport.compact(m.billable), size: 12, color: Theme.text)
                             }
                             HStack {
                                 Text(m.provider).font(.system(size: 10)).foregroundStyle(Theme.textMuted)
@@ -137,11 +127,10 @@ struct ModelsView: View {
                                 Text("\(m.requests) requests · \(m.costUSD.map { "$" + String(format: "%.2f", $0) } ?? "unpriced")")
                                     .font(.system(size: 10)).foregroundStyle(Theme.textMuted)
                             }
-                            TrackBar(fraction: Double(m.billable) / Double(maxBillable),
-                                     color: Theme.providerColors[i % Theme.providerColors.count])
+                            TrackBar(fraction: Double(m.billable) / Double(maxBillable), color: Theme.bar.opacity(0.45))
                         }
-                        .padding(.horizontal, 16).padding(.vertical, 9)
-                        Hairline().padding(.leading, 16)
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        Hairline().padding(.leading, 20)
                     }
                 }
             }
@@ -160,39 +149,32 @@ struct PrivacyView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 10) {
                     SectionHeader("WHAT EACH COLLECTOR CAN ACCESS")
                     collectorNote("Claude Code", "Reads ~/.claude/projects transcripts. Stores token counts, model, timestamps, project slug, request ids. Prompt and response text is never parsed, let alone stored.")
-                    Hairline()
                     collectorNote("Codex CLI", "Reads ~/.codex/sessions rollout logs and the quota data embedded in them. auth.json is never opened; no credential is ever refreshed.")
-                    Hairline()
                     Text("Everything stays in ~/Library/Application Support/AIMonitor. No telemetry, no account, no network.")
                         .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
                 }
-                .card(padding: 14)
 
                 VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("RETENTION")
-                    HStack(spacing: 2) {
-                        ForEach([("7d", "7"), ("30d", "30"), ("90d", "90"), ("1y", "365"), ("∞", "0")], id: \.1) { label, value in
+                    HStack(spacing: 14) {
+                        ForEach([("7 days", "7"), ("30 days", "30"), ("90 days", "90"), ("1 year", "365"), ("Forever", "0")], id: \.1) { label, value in
                             Button {
                                 retention = value
                                 try? model.store.setSetting("retention_days", value)
                                 try? model.store.applyRetention()
                             } label: {
                                 Text(label)
-                                    .font(.system(size: 10, weight: retention == value ? .semibold : .regular))
-                                    .foregroundStyle(retention == value ? Theme.text : Theme.textMuted)
-                                    .frame(maxWidth: .infinity).padding(.vertical, 4)
-                                    .background(retention == value ? Theme.trackFill : .clear)
-                                    .clipShape(Capsule())
+                                    .font(.system(size: 11, weight: retention == value ? .semibold : .regular))
+                                    .foregroundStyle(retention == value ? Theme.accent : Theme.textMuted)
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
-                .card(padding: 14)
 
                 VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("NOTIFICATIONS")
@@ -205,7 +187,6 @@ struct PrivacyView: View {
                         try? model.store.setSetting("notifications_enabled", notifications ? "true" : "false")
                     }
                 }
-                .card(padding: 14)
 
                 VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("DELETE")
@@ -220,16 +201,15 @@ struct PrivacyView: View {
                         }
                     }
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(confirmDelete ? .white : Theme.coral)
+                    .foregroundStyle(confirmDelete ? .white : Theme.accent)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(confirmDelete ? Theme.coral : Theme.coral.opacity(0.12))
+                    .background(confirmDelete ? Theme.accent : Theme.accentFaint)
                     .clipShape(Capsule())
                     Text("Removes every event, quota snapshot, and checkpoint. The next sync re-reads the logs from scratch.")
                         .font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
                 }
-                .card(padding: 14)
             }
-            .padding(16)
+            .padding(.horizontal, 20).padding(.vertical, 18)
         }
         .background(Theme.window)
         .onAppear {

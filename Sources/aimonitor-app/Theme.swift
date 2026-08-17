@@ -1,58 +1,63 @@
 import SwiftUI
 
-/// Design tokens, mirroring the approved mockup: solid surfaces, hairline
-/// borders, small letter-spaced section labels, monospaced numerals.
+/// Claude-design-language tokens: warm ivory surfaces, one terracotta accent,
+/// serif display numerals, hierarchy through spacing and type rather than
+/// borders and boxes.
 enum Theme {
-    // Surfaces
-    static let window = Color(nsColor: NSColor(red: 0.976, green: 0.976, blue: 0.969, alpha: 1))   // #F9F9F7
-    static let card = Color(nsColor: .white)
-    static let border = Color(nsColor: NSColor(red: 0.898, green: 0.898, blue: 0.878, alpha: 1))  // #E5E5E0
-    static let trackFill = Color.primary.opacity(0.07)
+    // Surfaces — warm, never pure white on pure gray
+    static let window = Color(red: 0.961, green: 0.957, blue: 0.937)   // #F5F4EF ivory
+    static let raised = Color(red: 0.992, green: 0.988, blue: 0.976)   // #FDFCF9 warm white
+    static let hairline = Color(red: 0.906, green: 0.898, blue: 0.863) // #E7E5DC
 
-    // Text
-    static let text = Color(nsColor: NSColor(red: 0.13, green: 0.13, blue: 0.12, alpha: 1))
-    static let textSecondary = Color(nsColor: NSColor(red: 0.42, green: 0.42, blue: 0.40, alpha: 1))
-    static let textMuted = Color(nsColor: NSColor(red: 0.60, green: 0.60, blue: 0.58, alpha: 1))
+    // Text — warm near-black
+    static let text = Color(red: 0.106, green: 0.098, blue: 0.082)     // #1B1915
+    static let textSecondary = Color(red: 0.431, green: 0.420, blue: 0.380)
+    static let textMuted = Color(red: 0.639, green: 0.627, blue: 0.584)
 
-    // Accents (from the mockup)
-    static let purple = Color(red: 0.498, green: 0.467, blue: 0.867)   // #7F77DD
-    static let purpleSoft = Color(red: 0.686, green: 0.663, blue: 0.925)
-    static let coral = Color(red: 0.847, green: 0.353, blue: 0.188)    // #D85A30
-    static let teal = Color(red: 0.114, green: 0.620, blue: 0.459)     // #1D9E75
-    static let blue = Color(red: 0.216, green: 0.541, blue: 0.867)     // #378ADD
-    static let gray = Color(red: 0.533, green: 0.529, blue: 0.502)     // #888780
-    static let amber = Color(red: 0.937, green: 0.624, blue: 0.153)    // #EF9F27
-    static let amberText = Color(red: 0.522, green: 0.310, blue: 0.043)
+    // The single accent — Claude terracotta
+    static let accent = Color(red: 0.851, green: 0.467, blue: 0.341)   // #D97757
+    static let accentSoft = Color(red: 0.925, green: 0.792, blue: 0.729)
+    static let accentFaint = accent.opacity(0.12)
 
-    // Active-now card
-    static let activeBg = Color(red: 0.918, green: 0.953, blue: 0.871) // #EAF3DE
-    static let activeDot = Color(red: 0.388, green: 0.600, blue: 0.133)
-    static let activeLabel = Color(red: 0.231, green: 0.427, blue: 0.067)
-    static let activeText = Color(red: 0.090, green: 0.204, blue: 0.016)
+    // Bars and tracks
+    static let bar = Color(red: 0.184, green: 0.176, blue: 0.153)      // warm charcoal
+    static let track = Color(red: 0.918, green: 0.910, blue: 0.875)
 
-    static let providerColors: [Color] = [purple, coral, teal, blue, gray]
+    // Live indicator — muted sage, the only other hue
+    static let live = Color(red: 0.490, green: 0.608, blue: 0.416)
 
+    // MARK: Type
+
+    /// Section labels: 10pt, letterspaced, muted — quiet by design.
     static func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 10, weight: .medium))
-            .tracking(1.4)
+            .tracking(1.6)
             .foregroundStyle(textMuted)
     }
 
-    static func number(_ text: String, size: CGFloat = 16, weight: Font.Weight = .medium) -> some View {
+    /// Serif display numerals — the Claude headline voice (New York).
+    static func display(_ text: String, size: CGFloat = 30) -> some View {
         Text(text)
-            .font(.system(size: size, weight: weight, design: .monospaced))
+            .font(.system(size: size, weight: .regular, design: .serif))
             .foregroundStyle(Theme.text)
+    }
+
+    /// Tabular numerals for anything that sits in a column.
+    static func mono(_ text: String, size: CGFloat = 12, color: Color = Theme.textSecondary) -> Text {
+        Text(text)
+            .font(.system(size: size, design: .monospaced))
+            .foregroundStyle(color)
     }
 }
 
 extension View {
-    /// White card with a hairline border, 12pt radius — the mockup's surface.
-    func card(padding: CGFloat = 12) -> some View {
+    /// The only elevation in the system: warm white, 14pt radius, no border —
+    /// separation comes from the ivory window behind it.
+    func raised(padding: CGFloat = 14) -> some View {
         self
             .padding(padding)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 0.5))
+            .background(Theme.raised)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
