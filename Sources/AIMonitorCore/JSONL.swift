@@ -5,40 +5,66 @@ import Foundation
 /// Log files here reach tens of thousands of lines; this reads in chunks and
 /// compacts the buffer once per chunk rather than once per line.
 public enum JSONL {
+    /// - Parameter needles: when non-empty, lines containing none of these
+    ///   byte sequences are skipped **before** JSON parsing. AI logs are mostly
+    ///   message-content lines; the accounting lines are a small minority, so
+    ///   a cheap substring gate avoids parsing megabytes of prose.
     public static func forEachObject(
         at url: URL,
+        needles: [String] = [],
         _ body: ([String: Any]) throws -> Void
     ) throws {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
+        let needleBytes = needles.map { Data($0.utf8) }
+
         var buffer = Data()
         let chunkSize = 1 << 20
         let newline: UInt8 = 0x0A
+
+        func process(_ line: Data, _ body: ([String: Any]) throws -> Void) throws {
+            guard !line.isEmpty else { return }
+            if !needleBytes.isEmpty,
+               !needleBytes.contains(where: { line.range(of: $0) != nil }) { return }
+            // Foundation objects from JSONSerialization are autoreleased; without
+            // a pool boundary they accumulate until process exit — gigabytes on
+            // large logs. Draining per line keeps peak memory flat.
+            try autoreleasepool {
+                if let obj = decode(line) { try body(obj) }
+            }
+        }
 
         func drain(final: Bool) throws {
             var searchFrom = buffer.startIndex
             while let idx = buffer[searchFrom...].firstIndex(of: newline) {
                 let line = buffer[searchFrom..<idx]
-                if !line.isEmpty, let obj = decode(Data(line)) { try body(obj) }
+                try process(Data(line), body)
                 searchFrom = buffer.index(after: idx)
             }
             if searchFrom > buffer.startIndex {
                 buffer.removeSubrange(buffer.startIndex..<searchFrom)
             }
-            if final, !buffer.isEmpty, let obj = decode(buffer) {
-                try body(obj)
+            if final, !buffer.isEmpty {
+                try process(buffer, body)
                 buffer.removeAll(keepingCapacity: false)
             }
         }
 
         while true {
-            let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
-            buffer.append(chunk)
-            try drain(final: false)
+            var done = false
+            // Pool per chunk, not per read loop turn: bridged Foundation
+            // objects from readData and JSONSerialization are autoreleased and
+            // would otherwise pile up until process exit on multi-GB logs.
+            try autoreleasepool {
+                let chunk = handle.readData(ofLength: chunkSize)
+                if chunk.isEmpty { done = true; return }
+                buffer.append(chunk)
+                try drain(final: false)
+            }
+            if done { break }
         }
-        try drain(final: true)
+        try autoreleasepool { try drain(final: true) }
     }
 
     /// A malformed line is skipped, not fatal. Logs get truncated mid-write when

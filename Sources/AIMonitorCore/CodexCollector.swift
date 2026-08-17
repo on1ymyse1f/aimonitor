@@ -56,7 +56,10 @@ public struct CodexCollector: Sendable {
             var sessionHadReset = false
 
             do {
-                try JSONL.forEachObject(at: file) { object in
+                // Accounting lives in token_count events (which also embed
+                // rate_limits); all other rollout lines are content — skip them
+                // before JSON parsing.
+                try JSONL.forEachObject(at: file, needles: ["token_count", "rate_limits"]) { object in
                     let payload = object.dict("payload") ?? object
                     let eventDate = Timestamps.parse(object.str("timestamp"))
 

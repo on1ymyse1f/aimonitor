@@ -56,7 +56,9 @@ public struct ClaudeCodeCollector: Sendable {
         for file in files {
             var lineNumber = 0
             do {
-                try JSONL.forEachObject(at: file) { object in
+                // Only records carrying a usage block matter; everything else
+                // (prompt/response content) is skipped before JSON parsing.
+                try JSONL.forEachObject(at: file, needles: ["\"usage\""]) { object in
                     lineNumber += 1
                     guard let message = object.dict("message"),
                           let usage = message.dict("usage") else { return }
