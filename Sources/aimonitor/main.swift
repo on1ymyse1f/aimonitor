@@ -67,6 +67,33 @@ while let arg = args.first {
         claudeRoot = takeDirectory(arg, from: &args)
     case "--codex-root":
         codexRoot = takeDirectory(arg, from: &args)
+    case "--sync":
+        // Sync into the store at the given path, then print what the store
+        // believes — for cross-checking the incremental path against the
+        // full-scan report on the same logs.
+        guard let dbPath = args.first else {
+            FileHandle.standardError.write(Data("error: --sync needs a database path\n".utf8))
+            exit(2)
+        }
+        args.removeFirst()
+        do {
+            let store = try EventStore(path: (dbPath as NSString).expandingTildeInPath)
+            let engine = SyncEngine(store: store, claudeRoot: claudeRoot, codexRoot: codexRoot)
+            let summary = engine.sync()
+            print("sync: \(summary.filesScanned) scanned, \(summary.filesSkippedUnchanged) unchanged, \(summary.filesFailed) failed; +\(summary.claudeEvents) claude, +\(summary.codexEvents) codex events")
+            for provider in [ClaudeCodeCollector.providerName, CodexCollector.providerName] {
+                guard let b = try store.tokenBreakdown(provider: provider) else { continue }
+                print("""
+                    \(provider): billable \(b.billableEquivalent) = input \(b.uncachedInput) + cached \(b.cachedInput) \
+                    + writes(5m \(b.cacheWrite5m), 1h \(b.cacheWrite1h), ?\(b.cacheWriteUnspecified)) + output \(b.output) \
+                    [reasoning \(b.reasoning)], events \(try store.eventCount(provider: provider))
+                    """)
+            }
+        } catch {
+            FileHandle.standardError.write(Data("error: sync failed: \(error)\n".utf8))
+            exit(1)
+        }
+        exit(0)
     default:
         FileHandle.standardError.write(Data("error: unknown argument '\(arg)'\n\n".utf8))
         print(usage())

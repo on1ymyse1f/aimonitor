@@ -14,16 +14,33 @@ public enum JSONL {
         needles: [String] = [],
         _ body: ([String: Any]) throws -> Void
     ) throws {
+        try forEachLine(at: url, from: 0, needles: needles) { obj, _, _ in try body(obj) }
+    }
+
+    /// Offset-aware variant for incremental parsing: seeks to `startOffset`
+    /// (must be a line boundary — checkpoints always are), reports each line's
+    /// absolute byte offset and the running end offset so callers can checkpoint.
+    ///
+    /// - Returns: the byte offset just past the last byte read.
+    @discardableResult
+    public static func forEachLine(
+        at url: URL,
+        from startOffset: UInt64,
+        needles: [String] = [],
+        _ body: ([String: Any], _ lineStart: UInt64, _ lineEnd: UInt64) throws -> Void
+    ) throws -> UInt64 {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        if startOffset > 0 { try handle.seek(toOffset: startOffset) }
 
         let needleBytes = needles.map { Data($0.utf8) }
 
         var buffer = Data()
         let chunkSize = 1 << 20
         let newline: UInt8 = 0x0A
+        var consumed = startOffset   // bytes consumed up to buffer start
 
-        func process(_ line: Data, _ body: ([String: Any]) throws -> Void) throws {
+        func process(_ line: Data, _ lineStart: UInt64, _ lineEnd: UInt64) throws {
             guard !line.isEmpty else { return }
             if !needleBytes.isEmpty,
                !needleBytes.contains(where: { line.range(of: $0) != nil }) { return }
@@ -31,7 +48,7 @@ public enum JSONL {
             // a pool boundary they accumulate until process exit — gigabytes on
             // large logs. Draining per line keeps peak memory flat.
             try autoreleasepool {
-                if let obj = decode(line) { try body(obj) }
+                if let obj = decode(line) { try body(obj, lineStart, lineEnd) }
             }
         }
 
@@ -39,15 +56,18 @@ public enum JSONL {
             var searchFrom = buffer.startIndex
             while let idx = buffer[searchFrom...].firstIndex(of: newline) {
                 let line = buffer[searchFrom..<idx]
-                try process(Data(line), body)
+                let lineStart = consumed + UInt64(searchFrom)
+                let lineEnd = consumed + UInt64(idx) + 1   // past the newline
+                try process(Data(line), lineStart, lineEnd)
                 searchFrom = buffer.index(after: idx)
             }
             if searchFrom > buffer.startIndex {
                 buffer.removeSubrange(buffer.startIndex..<searchFrom)
+                consumed += UInt64(searchFrom)
             }
             if final, !buffer.isEmpty {
-                try process(buffer, body)
-                buffer.removeAll(keepingCapacity: false)
+                let lineStart = consumed
+                try process(buffer, lineStart, consumed + UInt64(buffer.count))
             }
         }
 
@@ -65,6 +85,7 @@ public enum JSONL {
             if done { break }
         }
         try autoreleasepool { try drain(final: true) }
+        return try handle.offset()
     }
 
     /// A malformed line is skipped, not fatal. Logs get truncated mid-write when
