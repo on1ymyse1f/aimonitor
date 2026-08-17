@@ -1,7 +1,8 @@
-# aimonitor
+# aimonitor — AI Monitor Station
 
-Local usage monitor for AI coding tools. Reads logs the tools already write, and
-states how much each number is worth.
+Local-first usage monitor for AI coding tools on macOS. Reads the logs your
+tools already write, keeps a private SQLite history, and answers: how much AI
+am I using, what would it cost at API list price, and how much quota is left.
 
 Every figure carries a confidence marker:
 
@@ -14,151 +15,148 @@ Every figure carries a confidence marker:
 ## Run it
 
 ```bash
-swift build
-swift run aimonitor-probe    # confirm the log formats still match the parsers
-swift run aimonitor          # the report
+swift build -c release
+
+# one-shot report (full scan, the independently-verified path)
+swift run aimonitor
 swift run aimonitor --since 7
 swift run aimonitor --json
+
+# persistent mode
+swift run aimonitor-menubar   # menu bar: syncs when logs change, reads SQLite
+swift run aimonitor-app       # SwiftUI dashboard: today, usage, flow, quotas, timeline, models, privacy
 ```
 
-The menu-bar front end (`swift run aimonitor-menubar`) puts the tightest quota
-and the reconstructed cost in the status bar, with the breakdown in its menu.
+The menu bar app is the steady state: it fingerprints the log directories every
+15 s (stat calls only), syncs incrementally when they change, and renders from
+SQLite in milliseconds. A full historical scan happens once ever; after that,
+only new bytes are parsed.
 
-**Run the probe first.** A parser that finds nothing reports zero, and zero looks
-like a light usage day rather than a broken parser. The probe prints the *key
-paths* present in the real logs — never values — so format drift is visible
-before any number is trusted.
+**Run the probe first** (`swift run aimonitor-probe`) — it prints the key paths
+present in your real logs (never values) so format drift is visible before any
+number is trusted.
+
+## Architecture
+
+```
+~/.claude/projects/**/*.jsonl ─┐
+                               ├─ Collectors ─ Normalization ─ SyncEngine ─▶ SQLite ─▶ StoreReport ─▶ menu bar / dashboard
+~/.codex/sessions/**/rollout ──┘   (needles,    (TokenBreakdown,  (checkpoints,   (events, quota_      (read-only
+                                    no content   provider-neutral  atomic per file, snapshots,         queries)
+                                    parsing)     confidence)       restart-safe)    settings)
+```
+
+- **AIEvent** — the normalized record. Accounting and metadata only; prompt and
+  response text never enter the pipeline.
+- **Dedup is enforced by the schema**: Claude Code's progressive snapshots share
+  a `requestId` and the store keeps the largest; Codex delta events carry
+  positional ids that make replays no-ops.
+- **Checkpoints** make collection restart-safe: per-file offset + the Codex
+  session's last cumulative snapshot, committed atomically with the events.
+- **Burn-rate engine** projects quota exhaustion from observed snapshots, only
+  with enough observation spread; no prediction is shown otherwise.
+- See [ARCHITECTURE.md](ARCHITECTURE.md), [PRIVACY.md](PRIVACY.md),
+  [SECURITY.md](SECURITY.md), [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md).
 
 ## What each provider gives up
 
 | | Tokens | Quota | API-equivalent cost | Amount billed |
 |---|---|---|---|---|
 | Claude Code | est. (never exact — see below) | n/a | est. | n/a |
-| Codex CLI | exact / est. | exact | n/a | n/a |
+| Codex CLI | exact / est. | exact (from logs) | n/a | n/a |
 | Cursor | n/a | n/a | n/a | n/a |
 
 **Claude Code tokens are never labelled exact.** `input_tokens` in these
-transcripts is very small — 77% of requests report ≤ 2 — because Claude Code
-caches aggressively: each turn's new content is written to cache and counted under
-`cache_creation`, leaving only a residual as plain input. Measured on the
-reference logs, fresh input totals 95.9K against 7.98M cache-write tokens, and
-the field is constant across every snapshot of a request (360/360), so it is not
-a value that later fills in. That reading makes the totals complete. But
-[claude-code#28197](https://github.com/anthropics/claude-code/issues/28197)
-describes the same field as a streaming placeholder that never receives its final
-count, which would mean some real input is unaccounted for. Local logs cannot
-settle which reading is right, so the total stays an estimate. Any error is
-bounded by the fresh-input term — the smallest component of the total.
+transcripts is a tiny residual (77% of requests report ≤ 2) because new content
+lands in `cache_creation`; upstream (anthropics/claude-code#28197) disputes the
+field's meaning. The reading that makes totals complete can't be proven from
+local logs, so the figure stays `estimated` permanently.
 
-**Codex needs no credentials.** Codex embeds a `rate_limits` object inside the
-`token_count` events it already writes to `~/.codex/sessions/**/rollout-*.jsonl`
-— used percentage, window size, and reset time. Reading `auth.json`, refreshing
-an OAuth token, or risking the user's live CLI session is unnecessary for the
-headline numbers, so none of that is done.
+**Codex needs no credentials.** `rate_limits` rides inside the `token_count`
+events in `~/.codex/sessions/**/rollout-*.jsonl`. `auth.json` and OAuth refresh
+are never touched.
 
-**Cursor is deliberately absent.** It does not write per-request token accounting
-locally in a form comparable to the other two; its usage history sits behind a
-team admin API. A Cursor row would be a number that means something different
-from its neighbours, so it reports `unavailable` with the reason instead.
+**Codex cost is absent.** No verified OpenAI rate card ships here; a guessed
+rate would still add up, so there is no Codex cost figure.
 
-**Codex cost is absent.** Only Anthropic rates are verified and shipped. A
-guessed OpenAI rate would still add up, so there is no Codex cost figure.
+**Cursor is deliberately absent** — it writes no comparable local accounting;
+a number that means something different from its neighbours is worse than none.
 
-## The format traps
+## The format traps (each has a named test)
 
-Both log formats mislead a naive reader, in different ways. Each trap below is
-covered by a named test.
-
-**1. Codex counters are cumulative per session.** `total_token_usage` accumulates
-across the session, so summing the snapshots overcounts quadratically. The
-collector reads the final snapshot, or sums per-event deltas when a time window
-is requested. Deltas are immune to the duplicate `token_count` events this format
-emits, because a duplicate repeats an identical cumulative value and so
-contributes zero.
-
-**2. The two providers disagree about "input tokens".** Codex's `input_tokens` is
-*inclusive* of `cached_input_tokens` (verified: `input + output == total`, and
-`cached <= input`). Claude Code's is *exclusive* — cache reads live in a separate
-field. Summing the raw fields would add a number that includes cache reads to one
-that excludes them. Both collectors normalize into `TokenBreakdown`, where
-`uncachedInput` never includes cache reads for either provider.
-
-**3. Claude Code repeats one request across several records.** Records sharing a
-`requestId` are progressive snapshots of one streaming message: input and cache
-figures hold steady while output grows (2 → 783 tokens observed). On the logs this
-was built against, 690 of 1261 records were such repeats — summing lines
-over-reported by more than half. The fold keeps the *largest* snapshot rather than
-the last, which makes the total independent of the order files are traversed in.
-
-**4. Cache writes have two prices.** `cache_creation` splits into
-`ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens`, billing at 2× and
-1.25× the input rate. Live data here is 92% 1h. Collapsing them into the flat
-`cache_creation_input_tokens` field and applying 1.25× understated the cost of
-this machine's history by **$53.09 on $303.88** — 17.5%.
-
-**5. Reasoning tokens are a subset of output, not an addition.** They are carried
-for visibility and excluded from every sum.
-
-**6. Codex reports cache writes with no TTL.** Rather than filing them under 5m
-and pricing them at 1.25×, they land in `cacheWriteUnspecified` and any cost
-resting on them is disclosed.
+1. **Codex counters are cumulative per session** — summing snapshots overcounts
+   quadratically; the collector folds deltas, immune to duplicate events.
+2. **The providers disagree about "input tokens"** — Codex's is inclusive of
+   cache reads, Claude Code's exclusive. Both normalize into `TokenBreakdown`.
+3. **Claude Code repeats one request across several records** — progressive
+   streaming snapshots (2 → 783 tokens within one id). The fold keeps the
+   largest, order-independent, enforced in SQL.
+4. **Cache writes have two prices** — 1h TTL bills at 2×, 5m at 1.25×.
+   Collapsing them understated this machine's cost by 17.5%.
+5. **Reasoning tokens are a subset of output** — carried for visibility,
+   excluded from every sum.
+6. **Codex cache writes have no TTL** — recorded as `unspecified`, and any cost
+   resting on them says so.
 
 ## Cost is not a bill
 
-`apiEquivalentCostUSD` is the list price of equivalent API usage. A subscription
-plan does not bill per token, so it is a comparison figure, not an invoice. The
-amount actually billed is not derivable from local logs and always reports `n/a`.
-
-Web search and web fetch requests bill per request rather than per token. They are
-counted and disclosed but excluded from the cost figure, for the same reason
-Codex has no cost: no verified per-request rate ships here.
-
-Unpriced models (including `<synthetic>`, which is locally generated) have their
-tokens counted and their cost excluded, and are named in the report.
-
-## The logs move while you read them
-
-An agent session appends usage records as it works, so two runs seconds apart
-legitimately differ — during development, one run's record count grew from 1261
-to 1285 in three minutes. To compare runs, freeze the logs and point the tool at
-the copy:
-
-```bash
-cp -R ~/.claude/projects /tmp/snap-claude
-cp -R ~/.codex/sessions  /tmp/snap-codex
-swift run aimonitor --claude-root /tmp/snap-claude --codex-root /tmp/snap-codex
-```
+`apiEquivalentCostUSD` is list price of equivalent API usage — a comparison
+figure, not an invoice. Actually-billed is not derivable from local logs and
+always reports `n/a`.
 
 ## Verification
 
-- 31 tests, one per trap above, `swift test`.
-- Both collectors were cross-checked against independent Python reimplementations
-  over the same real logs. Claude Code agreed digit for digit
-  (150,408,007 billable-equivalent tokens, $303.88, 571 unique requests from 1261
-  records); Codex agreed digit for digit (16,675,098,630 billable-equivalent, one
-  counter reset across 115 sessions).
-- Cost golden values were computed independently before being asserted in Swift.
-- The windowed-vs-whole subset invariant was confirmed against a frozen snapshot.
+- 48 tests, one per trap plus store/dedup/incremental/burn-rate suites.
+- Both collectors were cross-checked against independent Python
+  reimplementations over the same real logs — digit-for-digit agreement.
+- The incremental store path was cross-checked against the full-scan report on
+  a frozen snapshot of the real logs: **identical for every field of both
+  providers** (Claude 165,651,473 tokens; Codex 16,675,098,630).
+- An earlier "window exceeds whole" paradox turned out to be the logs growing
+  while being read; `--claude-root/--codex-root` accept frozen snapshots for
+  reproducible comparisons.
+
+## Performance
+
+| | before | after |
+|---|---|---|
+| Full scan, 2.4 GB logs (release) | 37 s, 4.05 GB peak RSS | 24 s, **144 MB** peak RSS |
+| Steady-state menu-bar refresh | full rescan every 60 s | **0.03 s** when unchanged; parses only new bytes when changed |
+
+Two changes made this: a chunk-level `autoreleasepool` (Foundation objects from
+`JSONSerialization` otherwise pile up until process exit), and substring needle
+filtering that skips content lines before JSON parsing. Checkpoints make the
+steady state independent of history size.
 
 ## Layout
 
 ```
 Sources/AIMonitorCore/
-  Confidence.swift          the exact / est. / n/a contract, worst-wins combining
-  Models.swift              TokenBreakdown, QuotaWindow, ProviderReport, ScanStats
-  Pricing.swift             verified Anthropic rates, cache multipliers, fast mode
-  JSONL.swift               streaming reader + drift-tolerant accessors
+  Confidence.swift          exact / est. / n/a contract, worst-wins combining
+  Models.swift              TokenBreakdown, QuotaWindow, ProviderReport
+  Pricing.swift             verified Anthropic rates, cache multipliers
+  JSONL.swift               streaming reader: needles, offsets, autoreleasepool
   CodexCollector.swift      cumulative counters, quota from rate_limits
   ClaudeCodeCollector.swift streaming-snapshot fold, cache TTL split, cost
-  Aggregator.swift          provider composition; Cursor's unavailable-with-reason
+  Aggregator.swift          provider composition; Cursor unavailable-with-reason
   Report.swift              text and JSON rendering
-Sources/aimonitor/          CLI
+  AIEvent.swift             the normalized event record
+  Database.swift            minimal SQLite wrapper (WAL)
+  EventStore.swift          schema, migrations, dedup, checkpoints, analytics
+  SyncEngine.swift          incremental, restart-safe log → store sync
+  BurnRate.swift            quota exhaustion projection (or silence)
+  StoreReport.swift         read models for menu bar + dashboard
+Sources/aimonitor/          CLI (full scan; --sync for the store path)
 Sources/aimonitor-probe/    format probe (key paths only, no values)
-Sources/aimonitor-menubar/  status-bar front end
+Sources/aimonitor-menubar/  status-bar app, store-backed
+Sources/aimonitor-app/      SwiftUI dashboard: today / usage / flow / quota /
+                            timeline / models / privacy
+Tests/                      48 tests incl. fixtures per trap
 ```
 
-## Not built
+## Not built (deliberately)
 
-Proxy interception, browser-extension collection, and a process-level collector
-are not here. The dedup and normalization layer is built and tested now precisely
-so those can land later without silently changing every historical number.
+Browser extension, local API proxy, and a process-level collector are not here.
+The `source` field, dedup, and normalization layer exist precisely so those can
+land later without silently changing historical numbers. There is no network
+listener, no keychain use, and no telemetry anywhere in this build.

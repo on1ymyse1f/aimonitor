@@ -470,6 +470,39 @@ public final class EventStore: @unchecked Sendable {
         )
     }
 
+    public struct TimelineEvent: Equatable {
+        public var timestamp: Date
+        public var provider: String
+        public var model: String?
+        public var billable: Int
+        public var project: String?
+        public var sessionId: String?
+    }
+
+    /// Chronological event feed for the timeline page. No prompt content exists
+    /// in this table — the schema never stores it.
+    public func recentEvents(limit: Int = 300, provider: String? = nil) throws -> [TimelineEvent] {
+        let stmt = try db.prepare("""
+            SELECT ts, provider, model, billable, project, session_id FROM events
+            WHERE ts IS NOT NULL \(provider != nil ? "AND provider = ?2" : "")
+            ORDER BY ts DESC LIMIT ?1
+            """)
+        stmt.bind(limit, 1)
+        if let provider { stmt.bind(provider, 2) }
+        var out: [TimelineEvent] = []
+        while try stmt.step() {
+            out.append(TimelineEvent(
+                timestamp: Date(timeIntervalSince1970: stmt.double(0)),
+                provider: stmt.str(1) ?? "?",
+                model: stmt.str(2),
+                billable: stmt.int(3),
+                project: stmt.str(4),
+                sessionId: stmt.str(5)
+            ))
+        }
+        return out
+    }
+
     /// Whole-history token breakdown per provider — the number the CLI report
     /// cross-checks against. SUM of billable components, not just billable.
     public func tokenBreakdown(provider: String) throws -> TokenBreakdown? {

@@ -1,123 +1,181 @@
 import AIMonitorCore
 import AppKit
+import UserNotifications
 
-/// Menu-bar front end.
+/// Menu-bar front end, store-backed.
 ///
-/// Deliberately thin: it renders what `AIMonitorCore` returns and nothing more.
-/// Every number keeps the confidence marker the core assigned it, because the
-/// whole point is that a reconstructed figure should not look like a billed one
-/// just because it reached a status bar.
+/// The status bar reads SQLite only — milliseconds. Log parsing happens in the
+/// background and only when the logs actually changed (a stat-only fingerprint
+/// gates every sync), so the steady state costs nothing.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private var store: EventStore!
+    private var syncEngine: SyncEngine!
     private var refreshTimer: Timer?
-    private let aggregator = Aggregator()
-    private var lastReport: UsageReport?
+    private var lastFingerprint = -1
+    private var syncing = false
+    /// Quota thresholds already notified, per window id — reset when usage drops.
+    private var notifiedThresholds: [String: Int] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            store = try EventStore(path: EventStore.defaultPath())
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "AI Monitor could not open its database"
+            alert.informativeText = "\(error)"
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
+        syncEngine = SyncEngine(store: store)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "AI …"
-        refresh()
-        // Log scanning is I/O bound and the numbers move slowly; a minute is
-        // frequent enough to be useful and rare enough to stay invisible.
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refresh()
+
+        // First sync unconditionally (the store may be brand new), then a cheap
+        // fingerprint check on a timer.
+        kickSync(force: true)
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.kickSync(force: false)
         }
     }
 
-    private func refresh() {
+    /// Syncs when logs changed (or forced), then re-renders. All heavy work off
+    /// the main thread.
+    private func kickSync(force: Bool) {
+        guard !syncing else { return }
+        let fingerprint = syncEngine.logsFingerprint()
+        guard force || fingerprint != lastFingerprint else { render(); return }
+        syncing = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
-            let report = self.aggregator.report()
+            _ = self.syncEngine.sync()
             DispatchQueue.main.async {
-                self.lastReport = report
-                self.render(report)
+                self.syncing = false
+                self.lastFingerprint = fingerprint
+                self.render()
+                self.maybeNotify()
             }
         }
     }
 
-    /// Title shows the most actionable number available: the tightest quota if
-    /// one is known, otherwise reconstructed cost. A missing number is shown as
-    /// "n/a", never as a zero.
-    private func render(_ report: UsageReport) {
-        var fragments: [String] = []
+    private func render() {
+        guard let data = try? StoreReport.dashboard(from: store) else { return }
 
-        let tightest = report.providers
-            .flatMap { $0.quotas }
-            .max { $0.usedPercent < $1.usedPercent }
-
-        if let tightest {
-            fragments.append("\(tightest.label) \(Int(tightest.usedPercent.rounded()))%")
-        }
-
-        if let claude = report.providers.first(where: { $0.provider == ClaudeCodeCollector.providerName }),
-           let cost = claude.apiEquivalentCostUSD,
-           claude.apiEquivalentCostConfidence != .unavailable {
-            fragments.append("~" + ReportFormatter.money(cost))
-        }
-
-        statusItem.button?.title = fragments.isEmpty ? "AI n/a" : fragments.joined(separator: "  ")
-        statusItem.menu = buildMenu(report)
-    }
-
-    private func buildMenu(_ report: UsageReport) -> NSMenu {
-        let menu = NSMenu()
-
-        for provider in report.providers {
-            let header = NSMenuItem(title: provider.provider, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.addItem(header)
-
-            if let tokens = provider.tokens, provider.tokenConfidence != .unavailable {
-                menu.addItem(indented("\(tokens.billableEquivalent.formatted()) tokens  [\(provider.tokenConfidence.marker)]"))
+        // Status bar title: the configured metric, defaulting to the tightest quota.
+        let metric = store.setting("menubar_metric") ?? "quota"
+        var title = "AI"
+        switch metric {
+        case "tokens": title = StoreReport.compact(data.todayTokens)
+        case "time": title = StoreReport.duration(minutes: data.todayActiveMinutes)
+        case "cost":
+            title = data.todayCostUSD.map { "~" + ReportFormatter.money(Decimal($0)) } ?? "n/a"
+        case "none": title = "AI"
+        default:
+            if let q = StoreReport.tightestQuota(data.quotas) {
+                title = "\(Int(q.window.usedPercent.rounded()))%"
             } else {
-                menu.addItem(indented("tokens: unavailable"))
+                title = StoreReport.compact(data.todayTokens)
             }
+        }
+        statusItem.button?.title = title
 
-            if let cost = provider.apiEquivalentCostUSD, provider.apiEquivalentCostConfidence != .unavailable {
-                menu.addItem(indented("API-equivalent \(ReportFormatter.money(cost))  [\(provider.apiEquivalentCostConfidence.marker)]"))
-                menu.addItem(indented("actually billed: unavailable"))
-            }
+        var menu = NSMenu()
+        menu.addItem(header("AI Monitor"))
 
-            for quota in provider.quotas {
-                menu.addItem(indented(String(format: "%@ %.1f%% used  [%@]", quota.label, quota.usedPercent, provider.quotaConfidence.marker)))
-            }
-
-            if provider.tokens == nil, let reason = provider.notes.first {
-                menu.addItem(indented(reason))
-            }
-            menu.addItem(.separator())
+        // Active now
+        if let active = data.activeNow.first {
+            let ago = Int(Date().timeIntervalSince(active.lastEventAt))
+            menu.addItem(item("● \(active.provider)\(active.model.map { " · \($0)" } ?? "") · \(ago)s ago"))
         }
 
-        let copy = NSMenuItem(title: "Copy full report", action: #selector(copyReport), keyEquivalent: "c")
-        copy.target = self
-        menu.addItem(copy)
+        // Today
+        menu.addItem(.separator())
+        let costText = data.todayCostUSD.map { "~" + ReportFormatter.money(Decimal($0)) + " eq." } ?? "n/a"
+        menu.addItem(item("Today: \(StoreReport.compact(data.todayTokens)) tokens · \(StoreReport.duration(minutes: data.todayActiveMinutes)) · \(costText)"))
 
-        let refreshItem = NSMenuItem(title: "Refresh now", action: #selector(refreshNow), keyEquivalent: "r")
-        refreshItem.target = self
-        menu.addItem(refreshItem)
+        // Usage shares
+        if !data.usageShares.isEmpty {
+            menu.addItem(.separator())
+            for share in data.usageShares.prefix(6) {
+                menu.addItem(item(String(format: "%-14@ %3.0f%%  %@", share.provider as NSString, share.fraction * 100, StoreReport.compact(share.billable))))
+            }
+        }
+
+        // Quotas
+        if !data.quotas.isEmpty {
+            menu.addItem(.separator())
+            for q in data.quotas {
+                var line = String(format: "%@ %@ — %.0f%% · %@",
+                                  q.provider, q.window.label, q.window.usedPercent,
+                                  StoreReport.resetDescription(q.window.resetsAt))
+                if let p = q.projection {
+                    line += String(format: " · exhausted in %.1fh at current pace", p.exhaustedAt.timeIntervalSinceNow / 3600)
+                }
+                menu.addItem(item(line))
+            }
+        }
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(quit)
-        return menu
+        let open = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
+        open.target = self
+        menu.addItem(open)
+        let resync = NSMenuItem(title: "Sync now", action: #selector(forceSync), keyEquivalent: "r")
+        resync.target = self
+        menu.addItem(resync)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        statusItem.menu = menu
+
+        func header(_ s: String) -> NSMenuItem { let i = NSMenuItem(title: s, action: nil, keyEquivalent: ""); i.isEnabled = false; return i }
+        func item(_ s: String) -> NSMenuItem { let i = NSMenuItem(title: "   " + s, action: nil, keyEquivalent: ""); i.isEnabled = false; return i }
     }
 
-    private func indented(_ title: String) -> NSMenuItem {
-        let item = NSMenuItem(title: "   " + title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
+    /// Local notifications: off by default. Enabled via `notifications_enabled`
+    /// setting; fires once per threshold (80/90/100) per window per session.
+    private func maybeNotify() {
+        guard store.setting("notifications_enabled") == "true" else { return }
+        guard let quotas = try? store.latestQuotas() else { return }
+
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        for (window, provider) in quotas {
+            let crossed = [100, 90, 80].filter { window.usedPercent >= Double($0) }.max()
+            guard let threshold = crossed, (notifiedThresholds[window.id] ?? 0) < threshold else { continue }
+            notifiedThresholds[window.id] = threshold
+
+            let content = UNMutableNotificationContent()
+            content.title = "AI Monitor — \(provider)"
+            content.body = "\(window.label) quota reached \(Int(window.usedPercent))%."
+            if let history = try? store.quotaHistory(windowId: window.id),
+               let p = BurnRate.project(history: history, windowMinutes: window.windowMinutes, resetsAt: window.resetsAt),
+               p.exhaustedAt.timeIntervalSinceNow < (window.resetsAt?.timeIntervalSinceNow ?? 0) {
+                content.body += String(format: " At current pace it runs out in %.0fh %02.0fm.",
+                                       floor(p.exhaustedAt.timeIntervalSinceNow / 3600),
+                                       (p.exhaustedAt.timeIntervalSinceNow.truncatingRemainder(dividingBy: 3600)) / 60)
+            }
+            let request = UNNotificationRequest(identifier: "quota-\(window.id)-\(threshold)", content: content, trigger: nil)
+            center.add(request)
+        }
     }
 
-    @objc private func copyReport() {
-        guard let lastReport else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ReportFormatter.text(lastReport), forType: .string)
-    }
+    @objc private func forceSync() { kickSync(force: true) }
 
-    @objc private func refreshNow() { refresh() }
+    @objc private func openDashboard() {
+        // The dashboard binary is built alongside this one in the same
+        // products directory.
+        let sibling = URL(fileURLWithPath: CommandLine.arguments[0])
+            .deletingLastPathComponent().appendingPathComponent("aimonitor-app")
+        if FileManager.default.isExecutableFile(atPath: sibling.path) {
+            let task = Process()
+            task.executableURL = sibling
+            try? task.run()
+        }
+    }
 }
 
-// Runs as an accessory app: status-bar presence, no Dock icon, no window.
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
