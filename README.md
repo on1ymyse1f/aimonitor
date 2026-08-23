@@ -12,6 +12,57 @@ Every figure carries a confidence marker:
 | `est.` | Reconstructed from logs. The specific caveat is printed next to it. |
 | `n/a` | Not derivable from anything on this machine. Reported as absent — never as zero, because a zero is a claim. |
 
+## Installation
+
+### Requirements
+
+- **macOS 14+**
+- **Xcode 16+** or **Swift 6.0+** command line tools
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/on1ymyse1f/aimonitor.git
+cd aimonitor
+```
+
+### 2. Build
+
+```bash
+swift build -c release
+```
+
+### 3. Run (choose one)
+
+**First time?** Run the probe to verify your log formats are recognized:
+
+```bash
+swift run aimonitor-probe
+```
+
+**One-shot report** (full scan, outputs to terminal):
+
+```bash
+swift run aimonitor
+swift run aimonitor --since 7        # last 7 days
+swift run aimonitor --json           # machine-readable output
+```
+
+**Persistent mode** (recommended for daily use):
+
+```bash
+swift run aimonitor-menubar          # menu bar app: incremental sync + SQLite
+swift run aimonitor-app              # SwiftUI dashboard: charts, quotas, timeline, settings
+```
+
+### 4. Run tests (optional)
+
+```bash
+swift test
+```
+
+---
+
 ## Run it
 
 ```bash
