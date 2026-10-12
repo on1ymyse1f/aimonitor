@@ -131,6 +131,65 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(full.billableEquivalent, 330, "final snapshot: 150 fresh + 150 cached + 30 output")
     }
 
+    /// Retrying a partial record after reopening the database must preserve both
+    /// per-turn events and Codex's cumulative-counter resume state.
+    func testPartialWriteSurvivesStoreReopenForEveryProvider() throws {
+        let fixtures: [(provider: String, path: String, records: [String])] = [
+            (ClaudeCodeCollector.providerName, "proj/session.jsonl", (1...3).map {
+                claudeRecord(requestID: "r\($0)", ts: "2026-08-10T10:0\($0):00.000Z", output: $0 * 100)
+            }),
+            (CodexCollector.providerName, "2026/08/10/rollout-a.jsonl", (1...3).map {
+                codexTokenCount(ts: "2026-08-10T10:0\($0):00.000Z", input: $0 * 100, cached: $0 * 50, output: $0 * 10)
+            }),
+            (KimiCollector.providerName, "sessions/wd_p_a1b2c3/session_s1/agents/main/wire.jsonl", (1...3).map {
+                "{\"type\":\"usage.record\",\"usageScope\":\"turn\",\"usage\":{\"inputOther\":10,\"output\":\($0 * 100)},\"time\":1786973716746}"
+            }),
+        ]
+
+        for fixture in fixtures {
+            let dir = TempDir(), empty = TempDir(), databaseDir = TempDir()
+            let databasePath = databaseDir.url.appendingPathComponent("events.sqlite").path
+            func engine(_ store: EventStore) -> SyncEngine {
+                SyncEngine(store: store,
+                           claudeRoot: fixture.provider == ClaudeCodeCollector.providerName ? dir.url : empty.url,
+                           codexRoot: fixture.provider == CodexCollector.providerName ? dir.url : empty.url,
+                           kimiRoot: fixture.provider == KimiCollector.providerName ? dir.url : empty.url)
+            }
+            let prefix = fixture.records[0] + "\n"
+            let second = Data(fixture.records[1].utf8)
+            let split = second.count / 2
+            let file = dir.write([prefix], to: fixture.path)
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: second.prefix(split))
+            let discoveredFiles: [URL]
+            switch fixture.provider {
+            case ClaudeCodeCollector.providerName: discoveredFiles = ClaudeCodeCollector.transcriptFiles(under: dir.url)
+            case CodexCollector.providerName: discoveredFiles = CodexCollector.rolloutFiles(under: dir.url)
+            default: discoveredFiles = KimiCollector.wireFiles(under: dir.url)
+            }
+            let checkpointPath = try XCTUnwrap(discoveredFiles.first).path
+            do {
+                let store = try EventStore(path: databasePath)
+                XCTAssertEqual(engine(store).sync().filesFailed, 0, fixture.provider)
+                XCTAssertEqual(try store.checkpoint(for: checkpointPath)?.offset, prefix.utf8.count, fixture.provider)
+                XCTAssertEqual(try store.eventCount(provider: fixture.provider), 1, fixture.provider)
+            }
+            try handle.write(contentsOf: second.dropFirst(split))
+            try handle.write(contentsOf: Data(("\n" + fixture.records[2]).utf8))
+
+            let resumedStore = try EventStore(path: databasePath)
+            XCTAssertEqual(engine(resumedStore).sync().filesFailed, 0, fixture.provider)
+            let fullStore = try EventStore.inMemory()
+            XCTAssertEqual(engine(fullStore).sync().filesFailed, 0, fixture.provider)
+            XCTAssertEqual(try resumedStore.tokenBreakdown(provider: fixture.provider),
+                           try fullStore.tokenBreakdown(provider: fixture.provider), fixture.provider)
+            XCTAssertEqual(try resumedStore.eventCount(provider: fixture.provider), 3, fixture.provider)
+            XCTAssertEqual(engine(resumedStore).sync().filesSkippedUnchanged, 1, fixture.provider)
+        }
+    }
+
     /// An unchanged file must be skipped — this is what makes the menu-bar timer cheap.
     func testUnchangedFilesAreSkipped() throws {
         let dir = TempDir()

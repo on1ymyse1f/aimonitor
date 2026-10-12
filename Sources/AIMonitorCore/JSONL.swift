@@ -5,8 +5,8 @@ import Foundation
 /// Log files here reach tens of thousands of lines; this reads in chunks and
 /// compacts the buffer once per chunk rather than once per line.
 public enum JSONL {
-    /// - Parameter needles: when non-empty, lines containing none of these
-    ///   byte sequences are skipped **before** JSON parsing. AI logs are mostly
+    /// - Parameter needles: when non-empty, newline-terminated lines containing
+    ///   none of these byte sequences are skipped **before** JSON parsing. AI logs are mostly
     ///   message-content lines; the accounting lines are a small minority, so
     ///   a cheap substring gate avoids parsing megabytes of prose.
     public static func forEachObject(
@@ -21,7 +21,9 @@ public enum JSONL {
     /// (must be a line boundary — checkpoints always are), reports each line's
     /// absolute byte offset and the running end offset so callers can checkpoint.
     ///
-    /// - Returns: the byte offset just past the last byte read.
+    /// - Returns: the safe resume offset. An undecodable tail without a newline
+    ///   remains unconsumed so a later append can complete it. A complete object
+    ///   at EOF is consumed even when it does not match `needles`.
     @discardableResult
     public static func forEachLine(
         at url: URL,
@@ -40,10 +42,12 @@ public enum JSONL {
         let newline: UInt8 = 0x0A
         var consumed = startOffset   // bytes consumed up to buffer start
 
+        func matchesNeedles(_ line: Data) -> Bool {
+            needleBytes.isEmpty || needleBytes.contains(where: { line.range(of: $0) != nil })
+        }
+
         func process(_ line: Data, _ lineStart: UInt64, _ lineEnd: UInt64) throws {
-            guard !line.isEmpty else { return }
-            if !needleBytes.isEmpty,
-               !needleBytes.contains(where: { line.range(of: $0) != nil }) { return }
+            guard !line.isEmpty, matchesNeedles(line) else { return }
             // Foundation objects from JSONSerialization are autoreleased; without
             // a pool boundary they accumulate until process exit — gigabytes on
             // large logs. Draining per line keeps peak memory flat.
@@ -66,8 +70,13 @@ public enum JSONL {
                 consumed += UInt64(searchFrom)
             }
             if final, !buffer.isEmpty {
-                let lineStart = consumed
-                try process(buffer, lineStart, consumed + UInt64(buffer.count))
+                // Validate before filtering: a partial write may not contain its
+                // accounting needle yet. Only a decoded object is safe to consume.
+                if let object = decode(buffer) {
+                    let lineEnd = consumed + UInt64(buffer.count)
+                    if matchesNeedles(buffer) { try body(object, consumed, lineEnd) }
+                    consumed = lineEnd
+                }
             }
         }
 
@@ -85,7 +94,7 @@ public enum JSONL {
             if done { break }
         }
         try autoreleasepool { try drain(final: true) }
-        return try handle.offset()
+        return consumed
     }
 
     /// A malformed line is skipped, not fatal. Logs get truncated mid-write when
