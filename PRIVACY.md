@@ -16,6 +16,7 @@ log — are never parsed at all.
 ## What is stored
 
 One SQLite database at `~/Library/Application Support/AIMonitor/aimonitor.db`
+(`%LOCALAPPDATA%\AIMonitor\aimonitor.db` on Windows)
 containing token counts, costs, timestamps, model names, project slugs, session
 and request ids, quota snapshots, file checkpoints, and settings.
 

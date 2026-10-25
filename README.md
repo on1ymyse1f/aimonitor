@@ -19,6 +19,14 @@ Every figure carries a confidence marker:
 - **macOS 14+**
 - **Xcode 16+** or **Swift 6.0+** command line tools
 
+The core, the `aimonitor` CLI and `aimonitor-probe` also build and test on
+**Windows 10+** and **Linux** with Swift 6.0+ (Linux needs `libsqlite3-dev`;
+Windows uses the system `winsqlite3`). The menu bar app and the dashboard are
+AppKit / SwiftUI and are macOS-only for now. On Windows the store lives in
+`%LOCALAPPDATA%\AIMonitor`, and the opt-in Claude live quota reads
+`%USERPROFILE%\.claude\.credentials.json`, where Claude Code keeps its login
+there.
+
 ### 1. Clone the repository
 
 ```bash
@@ -205,7 +213,7 @@ Sources/AIMonitorCore/
   CodexCollector.swift      cumulative counters, quota from rate_limits
   ClaudeCodeCollector.swift streaming-snapshot fold, cache TTL split, cost
   KimiCollector.swift       per-turn usage records, session_index attribution
-  ClaudeQuotaProvider.swift opt-in online quota via Keychain OAuth (read-only)
+  ClaudeQuotaProvider.swift opt-in online quota via Claude Code's OAuth token (read-only)
   KimiQuotaProvider.swift   opt-in online quota via the CLI's own token
   CardReport.swift          shareable profile card (heatmap, streaks) as HTML
   Aggregator.swift          provider composition; Cursor unavailable-with-reason
@@ -216,12 +224,14 @@ Sources/AIMonitorCore/
   SyncEngine.swift          incremental, restart-safe log → store sync
   BurnRate.swift            quota exhaustion projection (or silence)
   StoreReport.swift         read models for menu bar + dashboard
+  Portability.swift         separator-agnostic path parts, autoreleasepool off Apple
+Sources/CSQLite/            system SQLite module for Linux / Windows
 Sources/aimonitor/          CLI (full scan; --sync store path; card export)
 Sources/aimonitor-probe/    format probe (key paths only, no values)
 Sources/aimonitor-menubar/  status-bar app, store-backed
 Sources/aimonitor-app/      SwiftUI dashboard: today / usage / flow / quota /
                             timeline / models / privacy
-Tests/                      70 tests incl. fixtures per trap
+Tests/                      76 tests incl. fixtures per trap
 ```
 
 ## Not built (deliberately)

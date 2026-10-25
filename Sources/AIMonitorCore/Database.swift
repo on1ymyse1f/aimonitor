@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(Darwin)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 /// Minimal SQLite wrapper. No ORM, no dependencies beyond the system library.
 /// WAL mode so the menu bar can read while a sync writes.
@@ -20,15 +24,26 @@ final class Database {
 
     init(path: String) throws {
         if !path.hasPrefix("file:") {
-            let dir = (path as NSString).deletingLastPathComponent
-            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            let dir = URL(fileURLWithPath: path).deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
-        if sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI, nil) != SQLITE_OK {
+        if sqlite3_open_v2(Self.nativePath(path), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI, nil) != SQLITE_OK {
             throw DBError.open(String(cString: sqlite3_errmsg(db)))
         }
         try exec("PRAGMA journal_mode=WAL")
         try exec("PRAGMA foreign_keys=ON")
         try exec("PRAGMA busy_timeout=3000")
+    }
+
+    /// SQLite takes the native path form. On Windows `URL.path` can come back
+    /// as `/C:/…` with forward slashes; elsewhere a path is already native.
+    private static func nativePath(_ path: String) -> String {
+        #if os(Windows)
+        if !path.hasPrefix("file:") {
+            return URL(fileURLWithPath: path).withUnsafeFileSystemRepresentation { String(cString: $0!) }
+        }
+        #endif
+        return path
     }
 
     /// In-memory, for tests.

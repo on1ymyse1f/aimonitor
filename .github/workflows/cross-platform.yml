@@ -1,0 +1,47 @@
+name: Cross-platform
+
+# The core, CLI, probe and tests on Linux and Windows. The macOS build,
+# including the AppKit / SwiftUI front ends, is build.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # Swift 6.0, the oldest toolchain the package supports.
+    runs-on: ubuntu-24.04
+    container: swift:6.0
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: SQLite headers
+        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.1-release
+          swift-build: 6.4.1-RELEASE
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test

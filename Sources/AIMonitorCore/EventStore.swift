@@ -78,9 +78,29 @@ public final class EventStore: @unchecked Sendable {
     public static func inMemory() throws -> EventStore { try EventStore(path: "file:aimonitor-test-\(UUID().uuidString)?mode=memory&cache=shared") }
 
     /// Default on-disk location: ~/Library/Application Support/AIMonitor/aimonitor.db
+    /// on macOS; %LOCALAPPDATA%\AIMonitor\aimonitor.db on Windows — local, not
+    /// roaming, so the database never follows a profile between machines.
     public static func defaultPath() -> String {
+        #if os(Windows)
+        if let local = ProcessInfo.processInfo.environment["LOCALAPPDATA"], !local.isEmpty {
+            return local + #"\AIMonitor\aimonitor.db"#
+        }
+        #endif
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("AIMonitor/aimonitor.db").path
+    }
+
+    /// The default store's directory as the user would type it:
+    /// `~/Library/Application Support/AIMonitor`, `%LOCALAPPDATA%\AIMonitor`.
+    public static func defaultDirectoryForDisplay() -> String {
+        #if os(Windows)
+        return #"%LOCALAPPDATA%\AIMonitor"#
+        #else
+        // Not `abbreviatingWithTildeInPath`: swift-corelibs-foundation lacks it.
+        let dir = URL(fileURLWithPath: defaultPath()).deletingLastPathComponent().path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return dir.hasPrefix(home + "/") ? "~" + dir.dropFirst(home.count) : dir
+        #endif
     }
 
     private func migrate() throws {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Claude subscription quota via the official (undocumented) usage endpoint —
 /// the same one Claude Code's own /usage UI reads.
@@ -6,10 +9,11 @@ import Foundation
 /// Ground rules, matching SECURITY.md:
 ///   * **Opt-in only.** Nothing here runs unless the `claude_quota_optin`
 ///     setting is "true". Default is off.
-///   * **Read-only.** The OAuth access token is read from the user's own
-///     Keychain (item "Claude Code-credentials"), used for one GET, and never
-///     stored anywhere. The refresh token is never touched, so an active CLI
-///     session cannot be invalidated.
+///   * **Read-only.** The OAuth access token is read from where Claude Code
+///     keeps it — the user's Keychain (item "Claude Code-credentials") on
+///     macOS, `~/.claude/.credentials.json` on Linux and Windows — used for
+///     one GET, and never stored anywhere. The refresh token is never touched,
+///     so an active CLI session cannot be invalidated.
 ///   * **Rare.** The endpoint is rate-limited independently; callers must
 ///     respect `minimumInterval` (15 min) between fetches.
 ///   * **Honest failure.** Expired token, network error, 429 — all produce
@@ -19,6 +23,8 @@ public struct ClaudeQuotaProvider: Sendable {
     public static let minimumInterval: TimeInterval = 900
 
     public enum FetchError: Error, Equatable {
+        /// No readable token: the Keychain item on macOS, the credentials
+        /// file elsewhere.
         case keychainUnavailable
         case tokenExpired
         case httpStatus(Int)
@@ -27,11 +33,17 @@ public struct ClaudeQuotaProvider: Sendable {
 
     public init() {}
 
-    /// Reads the Claude Code OAuth access token from the login keychain.
+    func readAccessToken() -> (token: String, expiresAt: Date?)? {
+        guard let raw = readCredentials() else { return nil }
+        return Self.accessToken(fromCredentials: raw)
+    }
+
+    #if os(macOS)
+    /// Reads Claude Code's credentials from the login keychain.
     /// Uses the `security` CLI rather than SecItem APIs: the CLI respects the
     /// user's Keychain prompt ("allow once / always") without embedding an
     /// entitlement dance into an unsigned SPM binary.
-    func readAccessToken() -> (token: String, expiresAt: Date?)? {
+    private func readCredentials() -> Data? {
         let task = Process()
         let pipe = Pipe()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -41,7 +53,22 @@ public struct ClaudeQuotaProvider: Sendable {
         guard (try? task.run()) != nil else { return nil }
         task.waitUntilExit()
         guard task.terminationStatus == 0 else { return nil }
-        let raw = pipe.fileHandleForReading.readDataToEndOfFile()
+        return pipe.fileHandleForReading.readDataToEndOfFile()
+    }
+    #else
+    /// Linux and Windows have no Keychain: Claude Code writes the same JSON to
+    /// `~/.claude/.credentials.json` (`%USERPROFILE%\.claude\.credentials.json`).
+    private func readCredentials() -> Data? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/.credentials.json")
+        return try? Data(contentsOf: url)
+    }
+    #endif
+
+    /// The access token and its expiry from Claude Code's credentials JSON —
+    /// the same shape in the Keychain item and in the file. The refresh token
+    /// in the same object is deliberately never read into a return value.
+    static func accessToken(fromCredentials raw: Data) -> (token: String, expiresAt: Date?)? {
         guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty

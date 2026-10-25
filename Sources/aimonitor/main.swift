@@ -27,8 +27,8 @@ func usage() -> String {
         --provider <name>  Provider to feature (default: the one with most usage)
         --out <file>       Output path (default: ~/Desktop/aimonitor-card.html)
         --lang en|zh       Card language (default: system)
-        --db <path>        Store path (default: ~/Library/Application Support/AIMonitor)
-        --name / --handle  Display name and handle (default: this Mac's user)
+        --db <path>        Store path (default: \(EventStore.defaultDirectoryForDisplay()))
+        --name / --handle  Display name and handle (default: this computer's user)
 
     REPRODUCIBILITY
       The live logs grow while you read them — an agent session appends usage

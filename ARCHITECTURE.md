@@ -2,7 +2,11 @@
 
 AI Monitor Station is a Swift package with one library (`AIMonitorCore`) and
 four front ends (`aimonitor` CLI, `aimonitor-probe`, `aimonitor-menubar`,
-`aimonitor-app`). No external dependencies; SQLite comes from the system.
+`aimonitor-app`). No external dependencies; SQLite comes from the system — the
+SDK's `SQLite3` module on macOS, libsqlite3 on Linux and winsqlite3 on Windows
+through the `CSQLite` system-library target. The library, the CLI and the probe
+build on all three; the two GUI front ends are AppKit / SwiftUI and the
+manifest includes them on macOS only.
 
 ## Layers
 
@@ -65,5 +69,6 @@ extension gets its own top-level `BrowserExtension/` directory (it is not Swift)
 
 ## Why no cloud anything
 
-All state is one file: `~/Library/Application Support/AIMonitor/aimonitor.db`.
+All state is one file: `~/Library/Application Support/AIMonitor/aimonitor.db`
+(`%LOCALAPPDATA%\AIMonitor\aimonitor.db` on Windows).
 There is no account, no sync, no network code path at all in this build.
