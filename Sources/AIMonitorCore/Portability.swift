@@ -21,7 +21,17 @@ enum PathParts {
     /// First component of `file` below `root`: the per-project directory of
     /// Claude Code and Kimi Code. Compares components, not strings, so it
     /// holds whichever separator `URL.path` uses on this platform.
+    ///
+    /// Both sides are symlink-resolved first: a directory enumerator may hand
+    /// back resolved paths for an unresolved root (macOS turns `/var/…` into
+    /// `/private/var/…`; a symlinked `~/.claude` does the same).
     static func first(of file: URL, under root: URL) -> String? {
-        file.pathComponents.dropFirst(root.pathComponents.count).first
+        for (f, r) in [(file, root), (file.resolvingSymlinksInPath(), root.resolvingSymlinksInPath())] {
+            let fileParts = f.pathComponents, rootParts = r.pathComponents
+            if fileParts.count > rootParts.count, fileParts.starts(with: rootParts) {
+                return fileParts[rootParts.count]
+            }
+        }
+        return nil
     }
 }

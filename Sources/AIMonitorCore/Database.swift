@@ -96,7 +96,8 @@ final class Database {
         func bind(_ v: String?, _ i: Int32) -> Bool {
             guard let stmt else { return false }
             if let v {
-                return sqlite3_bind_text(stmt, i, (v as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) == SQLITE_OK
+                // SQLITE_TRANSIENT: SQLite copies the bytes during the call.
+                return sqlite3_bind_text(stmt, i, v, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) == SQLITE_OK
             }
             return sqlite3_bind_null(stmt, i) == SQLITE_OK
         }

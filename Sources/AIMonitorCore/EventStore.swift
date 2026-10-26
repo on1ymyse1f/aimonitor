@@ -405,34 +405,50 @@ public final class EventStore: @unchecked Sendable {
 
     /// Token flow buckets: per hour for a 1-day range, per day otherwise.
     /// Returns (bucketStart, billable) ascending.
-    public func tokenFlow(since: Date, until: Date? = nil) throws -> [(Date, Int)] {
+    public func tokenFlow(since: Date, until: Date? = nil, calendar: Calendar = .current) throws -> [(Date, Int)] {
         let hourly = (until ?? Date()).timeIntervalSince(since) <= 36 * 3600
-        let expr = hourly
-            ? "strftime('%Y-%m-%d %H:00:00', ts, 'unixepoch', 'localtime')"
-            : "date(ts, 'unixepoch', 'localtime')"
-        let stmt = try db.prepare("""
-            SELECT \(expr) b, SUM(billable) FROM events
-            WHERE ts IS NOT NULL AND ts >= ?1 \(until != nil ? "AND ts < ?2" : "")
-            GROUP BY b ORDER BY b
-            """)
-        stmt.bind(since.timeIntervalSince1970, 1)
-        if let until { stmt.bind(until.timeIntervalSince1970, 2) }
-        let fmt = DateFormatter()
-        fmt.dateFormat = hourly ? "yyyy-MM-dd HH:mm:ss" : "yyyy-MM-dd"
-        var out: [(Date, Int)] = []
-        while try stmt.step() {
-            if let s = stmt.str(0), let d = fmt.parse(s) {
-                out.append((d, stmt.int(1)))
-            }
+        return try localBuckets(since: since, until: until, provider: nil) {
+            hourly ? calendar.dateInterval(of: .hour, for: $0)?.start ?? $0 : calendar.startOfDay(for: $0)
         }
-        return out
+    }
+
+    /// Sums billable into local-time buckets (`bucket` maps an instant to its
+    /// bucket's start), ascending.
+    ///
+    /// The time zone is applied here with `Calendar`, not with SQLite's
+    /// 'localtime' modifier: the Windows system SQLite (winsqlite3) returns
+    /// NULL for it, and Foundation applies the same zone rules everywhere.
+    /// SQLite pre-sums per 15 minutes of UTC; every UTC offset in use is a
+    /// multiple of 15 minutes, so each slice lies inside one local hour and
+    /// one local day.
+    private func localBuckets(
+        since: Date?, until: Date?, provider: String?, bucket: (Date) -> Date
+    ) throws -> [(Date, Int)] {
+        var conditions = ["ts IS NOT NULL"]
+        if since != nil { conditions.append("ts >= ?1") }
+        if until != nil { conditions.append("ts < ?2") }
+        if provider != nil { conditions.append("provider = ?3") }
+        let stmt = try db.prepare("""
+            SELECT CAST(ts / 900 AS INTEGER) q, SUM(billable) FROM events
+            WHERE \(conditions.joined(separator: " AND ")) GROUP BY q
+            """)
+        if let since { stmt.bind(since.timeIntervalSince1970, 1) }
+        if let until { stmt.bind(until.timeIntervalSince1970, 2) }
+        if let provider { stmt.bind(provider, 3) }
+        var sums: [Date: Int] = [:]
+        while try stmt.step() {
+            sums[bucket(Date(timeIntervalSince1970: Double(stmt.int(0)) * 900)), default: 0] += stmt.int(1)
+        }
+        return sums.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
     /// Distinct minutes containing at least one event — the honest version of
     /// "AI active time" derivable from logs: activity corroborated by requests.
+    /// Counted on UTC minutes: every UTC offset is a whole number of minutes,
+    /// so the count is the same in any time zone (and needs no 'localtime').
     public func activeMinutes(since: Date, until: Date? = nil) throws -> Int {
         let stmt = try db.prepare("""
-            SELECT COUNT(DISTINCT strftime('%Y-%m-%d %H:%M', ts, 'unixepoch', 'localtime'))
+            SELECT COUNT(DISTINCT CAST(ts / 60 AS INTEGER))
             FROM events WHERE ts IS NOT NULL AND ts >= ?1 \(until != nil ? "AND ts < ?2" : "")
             """)
         stmt.bind(since.timeIntervalSince1970, 1)
@@ -525,21 +541,9 @@ public final class EventStore: @unchecked Sendable {
 
     /// Per-day billable for one provider, ascending, only days with usage.
     /// Feeds the profile card's heatmap and streak math. Local-time days.
-    public func dailyBillable(provider: String) throws -> [(day: Date, billable: Int)] {
-        let stmt = try db.prepare("""
-            SELECT date(ts, 'unixepoch', 'localtime') d, SUM(billable) FROM events
-            WHERE ts IS NOT NULL AND provider=?1 GROUP BY d ORDER BY d
-            """)
-        stmt.bind(provider, 1)
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        var out: [(Date, Int)] = []
-        while try stmt.step() {
-            if let s = stmt.str(0), let d = fmt.parse(s) {
-                out.append((d, stmt.int(1)))
-            }
-        }
-        return out
+    public func dailyBillable(provider: String, calendar: Calendar = .current) throws -> [(day: Date, billable: Int)] {
+        try localBuckets(since: nil, until: nil, provider: provider) { calendar.startOfDay(for: $0) }
+            .map { (day: $0.0, billable: $0.1) }
     }
 
     /// Distinct providers present in the store, most usage first — the set of
@@ -581,6 +585,3 @@ public final class EventStore: @unchecked Sendable {
     }
 }
 
-private extension DateFormatter {
-    func parse(_ s: String) -> Date? { date(from: s) }
-}
