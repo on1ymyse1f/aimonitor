@@ -45,3 +45,39 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build the Windows app
+        run: dotnet build Windows/AIMonitor.Windows -c Release
+      - name: Smoke test (agent, tray, WebView2 dashboard)
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD 'smoke-out'
+          $fixtures = Join-Path $PWD 'Windows\smoke-fixtures'
+          $agent = Join-Path (swift build --show-bin-path).Trim() 'aimonitor.exe'
+          $app = 'Windows\AIMonitor.Windows\bin\Release\net10.0-windows\AIMonitor.exe'
+          $arguments = @(
+            '--smoke-test', $out, '--agent', $agent,
+            '--expect', 'claude-opus-5', '--expect', 'demo-project', '--expect', 'api-server',
+            '--', '--db', (Join-Path $out 'smoke.db'),
+            '--claude-root', (Join-Path $fixtures 'claude'),
+            '--codex-root', (Join-Path $fixtures 'codex'),
+            '--kimi-root', (Join-Path $fixtures 'kimi'))
+          $p = Start-Process -FilePath $app -ArgumentList $arguments -PassThru
+          $null = $p.Handle  # keeps ExitCode readable after exit
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); Write-Error 'smoke test timed out'; exit 1 }
+          Get-Content (Join-Path $out 'result.txt')
+          $tray = Join-Path $out 'tray.txt'
+          if (Test-Path $tray) { Get-Content $tray }
+          exit $p.ExitCode
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-dashboard
+          path: |
+            smoke-out/*.png
+            smoke-out/*.json
+            smoke-out/*.txt
+          if-no-files-found: ignore

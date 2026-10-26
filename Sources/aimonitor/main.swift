@@ -9,6 +9,7 @@ func usage() -> String {
       aimonitor [--since <days>] [--json]
       aimonitor --sync <db-path> [--claude-root <dir>] [--codex-root <dir>] [--kimi-root <dir>]
       aimonitor card [--provider <name>] [--out <file.html>] [--lang en|zh] [--db <db-path>]
+      aimonitor agent [--db <db-path>] [--claude-root <dir>] [--codex-root <dir>] [--kimi-root <dir>]
 
     OPTIONS
       --since <days>       Only count usage from the last N days (default: all history)
@@ -29,6 +30,13 @@ func usage() -> String {
         --lang en|zh       Card language (default: system)
         --db <path>        Store path (default: \(EventStore.defaultDirectoryForDisplay()))
         --name / --handle  Display name and handle (default: this computer's user)
+
+    AGENT
+      The background loop behind the Windows tray app: syncs when the logs
+      change, runs the opt-in live quota fetches, and answers the dashboard.
+      Reads one JSON command per line on stdin, writes one JSON message per
+      line on stdout, refreshes on its own every 15 s, and exits when stdin
+      closes. Not meant to be run by hand.
 
     REPRODUCIBILITY
       The live logs grow while you read them — an agent session appends usage
@@ -116,6 +124,64 @@ func runCardCommand(_ cardArgs: [String]) {
     }
 }
 
+/// `aimonitor agent` — see AGENT in the usage text and `MonitorAgent`.
+func runAgentCommand(_ agentArgs: [String]) -> Never {
+    var dbPath = EventStore.defaultPath()
+    var roots: [String: URL] = [:]
+    var rest = agentArgs
+    while let arg = rest.first {
+        rest.removeFirst()
+        switch arg {
+        case "--db":
+            guard let v = rest.first else {
+                FileHandle.standardError.write(Data("error: --db needs a path\n".utf8))
+                exit(2)
+            }
+            rest.removeFirst()
+            dbPath = (v as NSString).expandingTildeInPath
+        case "--claude-root", "--codex-root", "--kimi-root":
+            roots[arg] = takeDirectory(arg, from: &rest)
+        default:
+            FileHandle.standardError.write(Data("error: unknown agent option '\(arg)'\n".utf8))
+            exit(2)
+        }
+    }
+
+    @Sendable func send(_ lines: [String]) {
+        for line in lines { FileHandle.standardOutput.write(Data((line + "\n").utf8)) }
+    }
+
+    let store: EventStore
+    do {
+        store = try EventStore(path: dbPath)
+    } catch {
+        send([MonitorAgent.errorLine("AI Monitor could not open its database: \(error)")])
+        exit(1)
+    }
+    let engine = SyncEngine(store: store, claudeRoot: roots["--claude-root"], codexRoot: roots["--codex-root"], kimiRoot: roots["--kimi-root"])
+    let agent = MonitorAgent(store: store, engine: engine)
+
+    // Everything touching the agent runs on one queue: commands, the timer,
+    // and stdout writes, so lines never interleave.
+    let queue = DispatchQueue(label: "aimonitor.agent")
+    // First sync unconditionally (the store may be brand new), then every 15 s.
+    queue.async { send(agent.handle(line: #"{"cmd":"sync"}"#)) }
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + 15, repeating: 15)
+    timer.setEventHandler { send(agent.tick()) }
+    timer.resume()
+
+    Thread.detachNewThread {
+        while let line = readLine() {
+            queue.async { send(agent.handle(line: line)) }
+        }
+        // stdin closed: the front end is gone.
+        queue.sync {}
+        exit(0)
+    }
+    dispatchMain()
+}
+
 while let arg = args.first {
     args.removeFirst()
     switch arg {
@@ -140,6 +206,8 @@ while let arg = args.first {
     case "card":
         runCardCommand(args)
         exit(0)
+    case "agent":
+        runAgentCommand(args)
     case "--sync":
         // Sync into the store at the given path, then print what the store
         // believes — for cross-checking the incremental path against the

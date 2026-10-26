@@ -1,0 +1,267 @@
+/* The macOS dashboard's design tokens (Sources/aimonitor-app/Theme.swift):
+   warm ivory / warm charcoal, one terracotta accent, sage for "live".
+   Sizes are the SwiftUI point sizes; one CSS px = one macOS point. */
+
+:root {
+  --window: #F5F4EF;
+  --raised: #FDFCF9;
+  --hairline-color: #E7E5DC;
+  --text: #1B1915;
+  --text-secondary: #6E6B61;
+  --text-muted: #A3A095;
+  --accent: #D97757;
+  --accent-soft: #ECCABA;
+  --bar: #2F2D27;
+  --track: #EAE8DF;
+  --live: #7D9B6A;
+  /* The platform's own accent for switches, as SwiftUI toggles use macOS's. */
+  --control-accent: #0067C0;
+  /* One device pixel, like the macOS 0.5 pt hairline on a Retina screen. */
+  --hair: 1px;
+
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --serif: "Sitka Text", "Sitka", Georgia, "Times New Roman", serif;
+  --serif-display: "Sitka Display", "Sitka Heading", "Sitka", Georgia, "Times New Roman", serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --window: #1E1D1A;
+  --raised: #2A2925;
+  --hairline-color: #434139;
+  --text: #ECE9E2;
+  --text-secondary: #A8A499;
+  --text-muted: #6E6B61;
+  --accent: #E08A6D;
+  --accent-soft: #8B5C47;
+  --bar: #D0CDC4;
+  --track: #3A3832;
+  --live: #8AA976;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --window: #1E1D1A;
+    --raised: #2A2925;
+    --hairline-color: #434139;
+    --text: #ECE9E2;
+    --text-secondary: #A8A499;
+    --text-muted: #6E6B61;
+    --accent: #E08A6D;
+    --accent-soft: #8B5C47;
+    --bar: #D0CDC4;
+    --track: #3A3832;
+    --live: #8AA976;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--window);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.25;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+  text-align: left;
+}
+button:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; border-radius: 2px; }
+
+#app { display: flex; flex-direction: column; height: 100%; }
+
+/* Header: serif wordmark + date, then quiet text tabs. */
+.top {
+  display: flex;
+  align-items: baseline;
+  padding: 18px 20px 12px;
+}
+.top .title { font: 400 17px var(--serif); color: var(--text); }
+.top .date { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+
+.tabs { display: flex; gap: 18px; padding: 0 20px 6px; }
+.tab { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.tab.selected { font-weight: 500; color: var(--text); }
+.tab .underline { height: 2px; border-radius: 1px; background: transparent; }
+.tab.selected .underline { background: var(--accent); }
+
+.hairline { height: var(--hair); background: var(--hairline-color); flex: none; }
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-color) transparent;
+}
+.stack { display: flex; flex-direction: column; padding: 18px 20px; }
+.stack.dashboard { gap: 22px; }
+.stack.settings { gap: 20px; }
+
+.section { display: flex; flex-direction: column; gap: 10px; }
+.section.tight { gap: 8px; }
+.section.quota { gap: 12px; }
+
+.section-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  color: var(--text-muted);
+}
+
+.empty { font-size: 11px; color: var(--text-muted); padding: 2px 0; }
+.spacer { flex: 1; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--text-muted); }
+.secondary { color: var(--text-secondary); }
+
+/* Bars: 4 pt capsule on a warm track. */
+.track { position: relative; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; flex: none; }
+.share .track { flex: 1; }
+.track .fill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--bar); }
+.track .fill.soft { opacity: 0.45; }
+.track .fill.warn { background: var(--accent); opacity: 1; }
+
+/* Today */
+.hero { display: flex; flex-direction: column; gap: 10px; }
+.hero-main { display: flex; align-items: baseline; gap: 8px; }
+.display { font: 400 34px var(--serif-display); color: var(--text); }
+.hero-label { font-size: 12px; color: var(--text-muted); }
+.hero-stats { display: flex; gap: 18px; }
+.stat { display: flex; align-items: center; gap: 5px; }
+.stat .v { font: 12px var(--mono); color: var(--text); }
+.stat .l { font-size: 11px; color: var(--text-muted); }
+
+.active { display: flex; align-items: center; gap: 8px; }
+.active .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
+.active .name { font-size: 12px; font-weight: 500; color: var(--text); }
+.active .age { margin-left: auto; font: 11px var(--mono); color: var(--text-muted); }
+
+.share { display: flex; align-items: center; gap: 10px; }
+.share .name { width: 78px; flex: none; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share .pct { width: 34px; flex: none; text-align: right; font: 11px var(--mono); color: var(--text-secondary); }
+
+.row { display: flex; align-items: center; }
+.row.baseline { align-items: baseline; }
+
+.ranges { display: flex; gap: 12px; margin-left: auto; }
+.range { font-size: 10px; color: var(--text-muted); }
+.range.selected { font-weight: 600; color: var(--text); }
+
+.flow { display: flex; flex-direction: column; gap: 6px; }
+.flow .bars { display: flex; align-items: flex-end; height: 48px; }
+.flow .slot { flex: 1 1 0; display: flex; justify-content: center; align-items: flex-end; height: 100%; min-width: 0; }
+.flow .bar { min-width: 2px; min-height: 2px; border-radius: 1.5px; background: var(--accent-soft); }
+.flow .bar.last { background: var(--accent); }
+.flow .labels { display: flex; justify-content: space-between; font: 9px var(--mono); color: var(--text-muted); }
+
+.quota-row { display: flex; flex-direction: column; gap: 5px; }
+.quota-row .title { font-size: 11px; color: var(--text-secondary); }
+.quota-row .detail { margin-left: auto; font: 11px var(--mono); color: var(--text-muted); }
+.quota-row .detail.warn { color: var(--accent); }
+.quota-row .pace { font-size: 10px; color: var(--accent); }
+
+.loading { display: flex; justify-content: center; align-items: center; min-height: 240px; }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--track); border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Timeline */
+.filter { position: relative; padding: 8px 20px; flex: none; }
+.filter-button { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); }
+.chevrons { width: 6px; height: 9px; }
+.chevrons path { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.menu {
+  position: absolute; z-index: 10; top: 28px; left: 16px;
+  min-width: 150px; padding: 4px;
+  background: var(--raised);
+  border: var(--hair) solid var(--hairline-color);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+.menu button { display: block; width: 100%; padding: 4px 10px; border-radius: 4px; font-size: 12px; color: var(--text); }
+.menu button:hover { background: var(--track); }
+.menu .divider { height: var(--hair); margin: 4px 6px; background: var(--hairline-color); }
+
+.day-label {
+  position: sticky; top: 0; z-index: 1;
+  padding: 6px 20px;
+  background: var(--window);
+}
+.event { position: relative; display: flex; align-items: baseline; gap: 12px; padding: 7px 20px; }
+.event::after { content: ""; position: absolute; left: 76px; right: 0; bottom: 0; height: var(--hair); background: var(--hairline-color); }
+.event .time { width: 44px; flex: none; font: 11px var(--mono); color: var(--text-muted); }
+.event .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.event .who { display: flex; align-items: baseline; gap: 6px; }
+.event .provider { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.event .model { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.event .project { font-size: 10px; color: var(--text-muted); }
+.event .tokens { margin-left: auto; font: 11px var(--mono); color: var(--text-secondary); white-space: nowrap; }
+.timeline-empty { padding: 20px; }
+
+/* Models */
+.model-row { position: relative; display: flex; flex-direction: column; gap: 5px; padding: 10px 20px; }
+.model-row::after { content: ""; position: absolute; left: 20px; right: 0; bottom: 0; height: var(--hair); background: var(--hairline-color); }
+.model-row .name { font-size: 12px; font-weight: 500; color: var(--text); }
+.model-row .tokens { margin-left: auto; font: 12px var(--mono); color: var(--text); }
+.model-row .small { font-size: 10px; color: var(--text-muted); }
+.model-row .small + .small { margin-left: auto; }
+
+/* Settings */
+.choices { display: flex; flex-wrap: wrap; gap: 14px; }
+.choice { font-size: 11px; color: var(--text-muted); }
+.choice.selected { font-weight: 600; color: var(--accent); }
+.detail-text { font-size: 10px; color: var(--text-muted); }
+.note { display: flex; flex-direction: column; gap: 2px; }
+.note .name { font-size: 11px; font-weight: 500; color: var(--text); }
+.note .body { font-size: 10px; color: var(--text-secondary); }
+
+.toggle { display: flex; align-items: center; gap: 8px; width: 100%; }
+.toggle .label { font-size: 11px; color: var(--text-secondary); }
+.switch {
+  position: relative; margin-left: auto; flex: none;
+  width: 26px; height: 15px; border-radius: 8px;
+  background: var(--track);
+  border: var(--hair) solid var(--hairline-color);
+  transition: background 0.15s;
+}
+.switch::after {
+  content: ""; position: absolute; top: 1px; left: 1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s;
+}
+.switch.on { background: var(--control-accent); border-color: transparent; }
+.switch.on::after { transform: translateX(11px); }
+
+.delete {
+  align-self: flex-start;
+  padding: 6px 12px; border-radius: 999px;
+  font-size: 11px; font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.delete.confirm { color: #FFFFFF; background: var(--accent); }

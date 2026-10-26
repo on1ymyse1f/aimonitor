@@ -27,6 +27,13 @@ integrity of the tools being monitored.
   only credential touch in the build: a read-only Keychain (or credentials
   file) read, one GET, the token kept in memory for the duration of the call
   only. It is off by default.
+- **Windows app.** The tray app and its agent talk over the child process's
+  stdin/stdout: no port, no pipe name another process can open. The
+  dashboard is a local page shown through WebView2; navigation away from its
+  own files is cancelled, pop-ups are refused, dev tools and context menus
+  are off, and SmartScreen lookups are disabled since nothing is fetched.
+  The page's commands are allow-listed by the host and validated again by
+  the agent.
 - **No MITM, no root certificates, no traffic decryption.** Usage accounting
   comes from logs, not from intercepting TLS.
 - **SQL injection**: all queries use prepared statements with bound parameters.

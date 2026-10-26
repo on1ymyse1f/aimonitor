@@ -21,11 +21,8 @@ Every figure carries a confidence marker:
 
 The core, the `aimonitor` CLI and `aimonitor-probe` also build and test on
 **Windows 10+** and **Linux** with Swift 6.0+ (Linux needs `libsqlite3-dev`;
-Windows uses the system `winsqlite3`). The menu bar app and the dashboard are
-AppKit / SwiftUI and are macOS-only for now. On Windows the store lives in
-`%LOCALAPPDATA%\AIMonitor`, and the opt-in Claude live quota reads
-`%USERPROFILE%\.claude\.credentials.json`, where Claude Code keeps its login
-there.
+Windows uses the system `winsqlite3`). Windows has its own tray app and
+dashboard — see [Windows](#windows) below.
 
 ### 1. Clone the repository
 
@@ -70,6 +67,38 @@ swift test
 ```
 
 ---
+
+### Windows
+
+The Windows app is a tray icon (the macOS menu bar app) plus the same
+dashboard (Today / Timeline / Models / Settings, light and dark, 中文 / English).
+It is a thin .NET host: every number and label comes from `aimonitor agent`,
+the shared Swift core, so it matches macOS exactly.
+
+Requirements: Windows 10 1809+ or 11, [Swift 6.0+ for Windows](https://www.swift.org/install/windows/),
+the [.NET 10 SDK](https://dotnet.microsoft.com/download), and the Microsoft
+Edge WebView2 Runtime (part of Windows 11 and current Windows 10).
+
+```powershell
+git clone https://github.com/on1ymyse1f/aimonitor.git
+cd aimonitor
+swift build -c release
+dotnet run --project Windows\AIMonitor.Windows -c Release
+```
+
+The app finds `aimonitor.exe` in the SwiftPM build of the enclosing checkout
+(or next to `AIMonitor.exe`, or via `--agent <path>`). Closing the window keeps
+it in the tray; left-click the icon to reopen, right-click for the menu.
+`--background` starts it in the tray only. Its store is
+`%LOCALAPPDATA%\AIMonitor`; the opt-in Claude live quota reads
+`%USERPROFILE%\.claude\.credentials.json`, where Claude Code keeps its login
+on Windows.
+
+Where Windows differs from macOS, by necessity: the tray icon is a 16-px
+square, so it shows the tightest quota's number (or "AI"), with the full menu
+bar title in its tooltip; quota alerts are Windows notifications; serif and
+monospaced text use Sitka and Cascadia Mono, since New York and SF Mono are
+Apple fonts.
 
 ## Run it
 
@@ -225,13 +254,17 @@ Sources/AIMonitorCore/
   BurnRate.swift            quota exhaustion projection (or silence)
   StoreReport.swift         read models for menu bar + dashboard
   Portability.swift         separator-agnostic path parts, autoreleasepool off Apple
+  UISnapshot.swift          display-ready menu bar + dashboard data, as JSON
+  MonitorAgent.swift        the menu bar / dashboard loop, headless (`aimonitor agent`)
 Sources/CSQLite/            system SQLite module for Linux / Windows
 Sources/aimonitor/          CLI (full scan; --sync store path; card export)
 Sources/aimonitor-probe/    format probe (key paths only, no values)
 Sources/aimonitor-menubar/  status-bar app, store-backed
 Sources/aimonitor-app/      SwiftUI dashboard: today / usage / flow / quota /
                             timeline / models / privacy
-Tests/                      76 tests incl. fixtures per trap
+Windows/AIMonitor.Windows/  Windows tray app (.NET, WinForms + WebView2) and
+                            its dashboard page (ui/), fed by `aimonitor agent`
+Tests/                      81 tests incl. fixtures per trap
 ```
 
 ## Not built (deliberately)
