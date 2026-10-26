@@ -83,9 +83,11 @@ public enum L10n {
             : "Reads the access token from Kimi Code's local credential file and issues one GET to the official usage endpoint. At most once every 15 minutes; the token is never stored or refreshed. Off means zero network requests."
         case .exportCard: return zh ? "导出使用名片" : "Export profile card"
         case .exportCardDone: return zh ? "名片已导出：" : "Card exported:"
-        case .storageNote: return zh
-            ? "一切数据只存在 ~/Library/Application Support/AIMonitor。无遥测、无账号、除可选的在线额度查询（默认关闭）外无任何网络请求。"
-            : "Everything stays in ~/Library/Application Support/AIMonitor. No telemetry, no account, no network except the optional live quota queries (off by default)."
+        case .storageNote:
+            let dir = EventStore.defaultDirectoryForDisplay()
+            return zh
+            ? "一切数据只存在 \(dir)。无遥测、无账号、除可选的在线额度查询（默认关闭）外无任何网络请求。"
+            : "Everything stays in \(dir). No telemetry, no account, no network except the optional live quota queries (off by default)."
         case .retention: return zh ? "保留时长" : "RETENTION"
         case .retention7: return zh ? "7 天" : "7 days"
         case .retention30: return zh ? "30 天" : "30 days"
@@ -95,9 +97,17 @@ public enum L10n {
         case .notifications: return zh ? "通知" : "NOTIFICATIONS"
         case .notificationsDetail: return zh ? "额度达到 80% / 90% / 100% 时提醒" : "Quota alerts at 80% / 90% / 100%"
         case .claudeQuota: return zh ? "Claude 在线额度" : "Claude live quota"
-        case .claudeQuotaDetail: return zh
-            ? "从钥匙串只读 Claude Code 的 OAuth 令牌，向官方端点发一个 GET。每 15 分钟最多一次；令牌不落盘、不刷新。关闭则不产生任何网络请求。"
-            : "Reads the Claude Code OAuth token from your Keychain and issues one GET to the official usage endpoint. At most once every 15 minutes; the token is never stored or refreshed. Off means zero network requests."
+        case .claudeQuotaDetail:
+            #if os(macOS)
+            let source = zh ? "钥匙串" : "your Keychain"
+            #elseif os(Windows)
+            let source = zh ? #" %USERPROFILE%\.claude\.credentials.json "# : #"%USERPROFILE%\.claude\.credentials.json"#
+            #else
+            let source = zh ? " ~/.claude/.credentials.json " : "~/.claude/.credentials.json"
+            #endif
+            return zh
+            ? "从\(source)只读 Claude Code 的 OAuth 令牌，向官方端点发一个 GET。每 15 分钟最多一次；令牌不落盘、不刷新。关闭则不产生任何网络请求。"
+            : "Reads the Claude Code OAuth token from \(source) and issues one GET to the official usage endpoint. At most once every 15 minutes; the token is never stored or refreshed. Off means zero network requests."
         case .appearance: return zh ? "外观" : "APPEARANCE"
         case .appearanceSystem: return zh ? "跟随系统" : "System"
         case .appearanceLight: return zh ? "浅色" : "Light"

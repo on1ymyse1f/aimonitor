@@ -170,11 +170,10 @@ public struct KimiCollector: Sendable {
     static func projectName(for file: URL, under root: URL, index: [String: String]) -> String? {
         if let sessionId = sessionId(for: file),
            let workDir = index[sessionId],
-           let last = workDir.split(separator: "/").last {
-            return String(last)
+           let last = PathParts.last(of: workDir) {
+            return last
         }
-        let rel = file.path.dropFirst(root.path.count).split(separator: "/")
-        guard var slug = rel.first.map(String.init) else { return nil }
+        guard var slug = PathParts.first(of: file, under: root) else { return nil }
         if slug.hasPrefix("wd_") { slug.removeFirst(3) }
         if let range = slug.range(of: #"_[0-9a-f]{6,}$"#, options: .regularExpression) {
             slug.removeSubrange(range)

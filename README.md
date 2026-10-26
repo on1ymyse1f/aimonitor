@@ -19,6 +19,11 @@ Every figure carries a confidence marker:
 - **macOS 14+**
 - **Xcode 16+** or **Swift 6.0+** command line tools
 
+The core, the `aimonitor` CLI and `aimonitor-probe` also build and test on
+**Windows 10+** and **Linux** with Swift 6.0+ (Linux needs `libsqlite3-dev`;
+Windows uses the system `winsqlite3`). Windows has its own tray app and
+dashboard — see [Windows](#windows) below.
+
 ### 1. Clone the repository
 
 ```bash
@@ -62,6 +67,38 @@ swift test
 ```
 
 ---
+
+### Windows
+
+The Windows app is a tray icon (the macOS menu bar app) plus the same
+dashboard (Today / Timeline / Models / Settings, light and dark, 中文 / English).
+It is a thin .NET host: every number and label comes from `aimonitor agent`,
+the shared Swift core, so it matches macOS exactly.
+
+Requirements: Windows 10 1809+ or 11, [Swift 6.0+ for Windows](https://www.swift.org/install/windows/),
+the [.NET 10 SDK](https://dotnet.microsoft.com/download), and the Microsoft
+Edge WebView2 Runtime (part of Windows 11 and current Windows 10).
+
+```powershell
+git clone https://github.com/on1ymyse1f/aimonitor.git
+cd aimonitor
+swift build -c release
+dotnet run --project Windows\AIMonitor.Windows -c Release
+```
+
+The app finds `aimonitor.exe` in the SwiftPM build of the enclosing checkout
+(or next to `AIMonitor.exe`, or via `--agent <path>`). Closing the window keeps
+it in the tray; left-click the icon to reopen, right-click for the menu.
+`--background` starts it in the tray only. Its store is
+`%LOCALAPPDATA%\AIMonitor`; the opt-in Claude live quota reads
+`%USERPROFILE%\.claude\.credentials.json`, where Claude Code keeps its login
+on Windows.
+
+Where Windows differs from macOS, by necessity: the tray icon is a 16-px
+square, so it shows the tightest quota's number (or "AI"), with the full menu
+bar title in its tooltip; quota alerts are Windows notifications; serif and
+monospaced text use Sitka and Cascadia Mono, since New York and SF Mono are
+Apple fonts.
 
 ## Run it
 
@@ -205,7 +242,7 @@ Sources/AIMonitorCore/
   CodexCollector.swift      cumulative counters, quota from rate_limits
   ClaudeCodeCollector.swift streaming-snapshot fold, cache TTL split, cost
   KimiCollector.swift       per-turn usage records, session_index attribution
-  ClaudeQuotaProvider.swift opt-in online quota via Keychain OAuth (read-only)
+  ClaudeQuotaProvider.swift opt-in online quota via Claude Code's OAuth token (read-only)
   KimiQuotaProvider.swift   opt-in online quota via the CLI's own token
   CardReport.swift          shareable profile card (heatmap, streaks) as HTML
   Aggregator.swift          provider composition; Cursor unavailable-with-reason
@@ -216,12 +253,18 @@ Sources/AIMonitorCore/
   SyncEngine.swift          incremental, restart-safe log → store sync
   BurnRate.swift            quota exhaustion projection (or silence)
   StoreReport.swift         read models for menu bar + dashboard
+  Portability.swift         separator-agnostic path parts, autoreleasepool off Apple
+  UISnapshot.swift          display-ready menu bar + dashboard data, as JSON
+  MonitorAgent.swift        the menu bar / dashboard loop, headless (`aimonitor agent`)
+Sources/CSQLite/            system SQLite module for Linux / Windows
 Sources/aimonitor/          CLI (full scan; --sync store path; card export)
 Sources/aimonitor-probe/    format probe (key paths only, no values)
 Sources/aimonitor-menubar/  status-bar app, store-backed
 Sources/aimonitor-app/      SwiftUI dashboard: today / usage / flow / quota /
                             timeline / models / privacy
-Tests/                      70 tests incl. fixtures per trap
+Windows/AIMonitor.Windows/  Windows tray app (.NET, WinForms + WebView2) and
+                            its dashboard page (ui/), fed by `aimonitor agent`
+Tests/                      81 tests incl. fixtures per trap
 ```
 
 ## Not built (deliberately)

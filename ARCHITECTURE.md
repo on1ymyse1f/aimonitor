@@ -2,7 +2,31 @@
 
 AI Monitor Station is a Swift package with one library (`AIMonitorCore`) and
 four front ends (`aimonitor` CLI, `aimonitor-probe`, `aimonitor-menubar`,
-`aimonitor-app`). No external dependencies; SQLite comes from the system.
+`aimonitor-app`). No external dependencies; SQLite comes from the system — the
+SDK's `SQLite3` module on macOS, libsqlite3 on Linux and winsqlite3 on Windows
+through the `CSQLite` system-library target. The library, the CLI and the probe
+build on all three; the two GUI front ends are AppKit / SwiftUI and the
+manifest includes them on macOS only.
+
+## Windows front end
+
+`Windows/AIMonitor.Windows` is a .NET WinForms tray app with a WebView2
+dashboard. It contains no accounting logic. It starts `aimonitor agent` as a
+child process and talks to it in JSON lines over stdin/stdout:
+
+```
+AIMonitor.exe ──stdin: {"cmd":…}──▶ aimonitor agent ── MonitorAgent ─▶ SyncEngine / EventStore
+       ▲                                   │
+       └──stdout: snapshot / notification ─┘    UISnapshot: every string the macOS
+                                                 views show, already formatted
+```
+
+`MonitorAgent` is the macOS menu bar's and dashboard's loop without AppKit:
+stat-gated sync every 15 s, the opt-in quota fetches with the same 15-minute
+floor, and notifications at 80/90/100%. `UISnapshot` formats with the same
+rules as the SwiftUI views (`StoreReport.compact`, `resetDescription`, the
+pace text, day labels), so the Windows page only lays text out. The agent has
+no socket; it exits when its stdin closes.
 
 ## Layers
 
@@ -65,5 +89,6 @@ extension gets its own top-level `BrowserExtension/` directory (it is not Swift)
 
 ## Why no cloud anything
 
-All state is one file: `~/Library/Application Support/AIMonitor/aimonitor.db`.
+All state is one file: `~/Library/Application Support/AIMonitor/aimonitor.db`
+(`%LOCALAPPDATA%\AIMonitor\aimonitor.db` on Windows).
 There is no account, no sync, no network code path at all in this build.

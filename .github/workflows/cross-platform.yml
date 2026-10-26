@@ -1,0 +1,83 @@
+name: Cross-platform
+
+# The core, CLI, probe and tests on Linux and Windows. The macOS build,
+# including the AppKit / SwiftUI front ends, is build.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # Swift 6.0, the oldest toolchain the package supports.
+    runs-on: ubuntu-24.04
+    container: swift:6.0
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: SQLite headers
+        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.1-release
+          swift-build: 6.4.1-RELEASE
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build the Windows app
+        run: dotnet build Windows/AIMonitor.Windows -c Release
+      - name: Smoke test (agent, tray, WebView2 dashboard)
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD 'smoke-out'
+          $fixtures = Join-Path $PWD 'Windows\smoke-fixtures'
+          $agent = Join-Path (swift build --show-bin-path).Trim() 'aimonitor.exe'
+          $app = 'Windows\AIMonitor.Windows\bin\Release\net10.0-windows\AIMonitor.exe'
+          $arguments = @(
+            '--smoke-test', $out, '--agent', $agent,
+            '--expect', 'claude-opus-5', '--expect', 'demo-project', '--expect', 'api-server',
+            '--', '--db', (Join-Path $out 'smoke.db'),
+            '--claude-root', (Join-Path $fixtures 'claude'),
+            '--codex-root', (Join-Path $fixtures 'codex'),
+            '--kimi-root', (Join-Path $fixtures 'kimi'))
+          $p = Start-Process -FilePath $app -ArgumentList $arguments -PassThru
+          $null = $p.Handle  # keeps ExitCode readable after exit
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); Write-Error 'smoke test timed out'; exit 1 }
+          Get-Content (Join-Path $out 'result.txt')
+          $tray = Join-Path $out 'tray.txt'
+          if (Test-Path $tray) { Get-Content $tray }
+          exit $p.ExitCode
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-dashboard
+          path: |
+            smoke-out/*.png
+            smoke-out/*.json
+            smoke-out/*.txt
+          if-no-files-found: ignore

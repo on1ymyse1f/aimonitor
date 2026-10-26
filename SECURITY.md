@@ -10,11 +10,13 @@ integrity of the tools being monitored.
 
 - **Network: one optional path, off by default.** The Claude live-quota fetch
   (Settings → Claude live quota) reads the Claude Code OAuth access token from
-  the user's Keychain and issues a single read-only GET to the official usage
-  endpoint, at most once every 15 minutes. The token is never written to disk
-  or the database, and the refresh token is never touched — an active CLI
-  session cannot be invalidated. Disabled, the build performs zero network
-  requests. There is no listener, proxy, or IPC endpoint.
+  where Claude Code keeps it — the user's Keychain on macOS,
+  `~/.claude/.credentials.json` on Linux and Windows — and issues a single
+  read-only GET to the official usage endpoint, at most once every 15 minutes.
+  The token is never written to disk or the database, and the refresh token is
+  never touched — an active CLI session cannot be invalidated. Disabled, the
+  build performs zero network requests. There is no listener, proxy, or IPC
+  endpoint.
 - **When the proxy and browser-extension collectors are added**, they must bind
   to loopback only, authenticate extension messages with a per-install secret,
   and validate every payload — recorded here so they are designed-in, not
@@ -22,9 +24,16 @@ integrity of the tools being monitored.
 - **No credential access by default.** Codex quota data is read from the logs
   Codex already writes (`rate_limits` inside `token_count` events);
   `auth.json` is never opened. The optional Claude live-quota feature is the
-  only credential touch in the build: a read-only Keychain read, one GET, the
-  token kept in memory for the duration of the call only. It is off by
-  default.
+  only credential touch in the build: a read-only Keychain (or credentials
+  file) read, one GET, the token kept in memory for the duration of the call
+  only. It is off by default.
+- **Windows app.** The tray app and its agent talk over the child process's
+  stdin/stdout: no port, no pipe name another process can open. The
+  dashboard is a local page shown through WebView2; navigation away from its
+  own files is cancelled, pop-ups are refused, dev tools and context menus
+  are off, and SmartScreen lookups are disabled since nothing is fetched.
+  The page's commands are allow-listed by the host and validated again by
+  the agent.
 - **No MITM, no root certificates, no traffic decryption.** Usage accounting
   comes from logs, not from intercepting TLS.
 - **SQL injection**: all queries use prepared statements with bound parameters.

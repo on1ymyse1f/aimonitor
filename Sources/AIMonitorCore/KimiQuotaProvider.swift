@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Kimi Code subscription quota via the provider's coding usage endpoint.
 ///

@@ -149,7 +149,7 @@ public struct SyncEngine: Sendable {
         // Session meta lives in the first line, which the needle filter would
         // skip; read it directly. Cheap even on huge files.
         let meta = Self.codexSessionMeta(of: file)
-        let project = meta.cwd?.split(separator: "/").last.map(String.init)
+        let project = meta.cwd.flatMap(PathParts.last(of:))
 
         var pending: [AIEvent] = []
         var quotas: [QuotaWindow] = []
@@ -273,11 +273,12 @@ public struct SyncEngine: Sendable {
         (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
 
-    /// `-Users-chengwenbo-Claude-trotflow` → `Claude-trotflow`
+    /// `-Users-chengwenbo-Claude-trotflow` → `Claude-trotflow`. On Windows the
+    /// slug starts with the drive: `C--Users-chengwenbo-Claude-trotflow` →
+    /// `Claude-trotflow`.
     static func claudeProjectName(for file: URL, under root: URL) -> String? {
-        let rel = file.path.dropFirst(root.path.count).split(separator: "/")
-        guard var slug = rel.first.map(String.init) else { return nil }
-        if slug.hasPrefix("-"), let range = slug.range(of: #"^-[^-]*-[^-]*-"#, options: .regularExpression) {
+        guard var slug = PathParts.first(of: file, under: root) else { return nil }
+        if let range = slug.range(of: #"^(-|[A-Za-z]--)[^-]*-[^-]*-"#, options: .regularExpression) {
             slug.removeSubrange(range)
         }
         return slug.isEmpty ? nil : slug

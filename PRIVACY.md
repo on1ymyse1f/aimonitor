@@ -16,10 +16,14 @@ log — are never parsed at all.
 ## What is stored
 
 One SQLite database at `~/Library/Application Support/AIMonitor/aimonitor.db`
+(`%LOCALAPPDATA%\AIMonitor\aimonitor.db` on Windows)
 containing token counts, costs, timestamps, model names, project slugs, session
 and request ids, quota snapshots, file checkpoints, and settings.
 
 The events table has no column for prompt or response content, by design.
+
+On Windows, the dashboard's WebView2 profile (the browser engine's cache for
+the app's own local page) is kept beside it in `%LOCALAPPDATA%\AIMonitor\WebView2`.
 
 ## What never happens
 
